@@ -2951,10 +2951,7 @@ async fn fetch_conversations_via_signals(
         for summary in parse_conversations(values) {
             conversations_map.insert(summary.thread_id, summary);
         }
-        tracing::info!(
-            "Parsed {} cached conversations",
-            conversations_map.len()
-        );
+        tracing::info!("Parsed {} cached conversations", conversations_map.len());
     }
 
     // Request fresh data from the phone
