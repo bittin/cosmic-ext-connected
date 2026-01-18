@@ -556,36 +556,97 @@ Without explicit match rules, D-Bus signals may not be delivered to the applicat
 
 ## SMS Implementation Notes
 
-### Signal-Based Message Fetching
+### Signal-Based Data Fetching
 
-SMS messages are fetched using D-Bus signals rather than polling. The pattern is:
+Both conversation lists and individual messages are fetched using D-Bus signals rather than polling. This provides reliable loading regardless of phone response time.
 
-1. Subscribe to `conversationUpdated` and `conversationLoaded` signals
-2. Call `requestConversation(thread_id, start, count)` to request messages
-3. Collect messages from `conversationUpdated` signals as they arrive
-4. Stop collecting when `conversationLoaded` signal is received
+#### Conversation List Loading
+
+The conversation list is loaded via `fetch_conversations_async` which:
+
+1. Subscribes to `conversationCreated`, `conversationUpdated`, and `conversationLoaded` signals
+2. Loads cached conversations from `activeConversations()` first (instant display)
+3. Calls `requestAllConversationThreads()` to trigger fresh data from the phone
+4. Collects conversations from signals using activity-based timeout:
+   - Stops 500ms after the last signal (once data starts arriving)
+   - Hard timeout of 15 seconds maximum
+5. Falls back to polling if signal subscription fails
 
 ```rust
-// Subscribe to signals before requesting
-let mut updated_stream = conversations_proxy.receive_conversation_updated().await?;
-let mut loaded_stream = conversations_proxy.receive_conversation_loaded().await?;
+// Signal-based loading with activity timeout
+let activity_timeout = Duration::from_millis(500);
+let overall_timeout = Duration::from_secs(15);
 
-// Request messages
-conversations_proxy.request_conversation(thread_id, 0, 20).await?;
-
-// Collect from signals using tokio::select!
 loop {
     tokio::select! {
-        Some(signal) = updated_stream.next() => {
-            // Parse and store message
+        Some(signal) = created_stream.next() => {
+            // New conversation, add to map
+            last_activity = Instant::now();
         }
-        Some(signal) = loaded_stream.next() => {
-            // Done loading, break
-            break;
+        Some(signal) = updated_stream.next() => {
+            // Updated conversation, update if newer
+            last_activity = Instant::now();
+        }
+        Some(_) = loaded_stream.next() => {
+            // Activity indicator
+            loaded_signal_received = true;
+            last_activity = Instant::now();
+        }
+        _ = sleep(Duration::from_millis(50)) => {
+            // Check timeouts
+            if loaded_signal_received && last_activity.elapsed() >= activity_timeout {
+                break; // Done - no signals for 500ms
+            }
+            if start_time.elapsed() >= overall_timeout {
+                break; // Hard timeout
+            }
         }
     }
 }
 ```
+
+#### Message Thread Loading
+
+Individual message threads use a similar pattern:
+
+1. Subscribe to `conversationUpdated` and `conversationLoaded` signals
+2. Call `requestConversation(thread_id, start, count)` to request messages
+3. Collect messages from `conversationUpdated` signals as they arrive
+4. Stop collecting when `conversationLoaded` signal is received for that thread
+
+### Conversation List Caching
+
+The conversation list is cached in memory to provide instant display when returning to the SMS view.
+
+**Caching behavior:**
+- When navigating back from SMS to device page, conversations are preserved in memory
+- When re-opening SMS for the **same device**, cached conversations display immediately
+- A background refresh runs to fetch any new conversations
+- When switching to a **different device**, cache is cleared and fresh data is loaded
+
+**State preservation:**
+```rust
+// OpenSmsView checks for cached data
+let same_device = self.sms_device_id.as_ref() == Some(&device_id);
+let has_cache = same_device && !self.conversations.is_empty();
+
+if has_cache {
+    self.sms_loading = false;  // Show cached data immediately
+    // Trigger background refresh
+} else {
+    self.sms_loading = true;   // Show loading spinner
+    self.conversations.clear();
+}
+
+// CloseSmsView preserves cache
+Message::CloseSmsView => {
+    self.view_mode = ViewMode::DevicePage;
+    // Keep: sms_device_id, conversations, contacts, message_cache
+    // Clear: messages, current_thread_id, sms_compose_text
+}
+```
+
+**Message cache:** Individual message threads are also cached in `message_cache: HashMap<i64, Vec<SmsMessage>>`. When opening a conversation, cached messages display immediately while a background refresh runs.
 
 ### Contact Name Resolution
 

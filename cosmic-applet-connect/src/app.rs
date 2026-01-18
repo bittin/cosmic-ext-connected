@@ -765,32 +765,51 @@ impl Application for ConnectApplet {
                         .find(|d| d.id == device_id)
                         .map(|d| d.name.clone());
 
+                    // Check if we have cached conversations for this device
+                    let same_device = self.sms_device_id.as_ref() == Some(&device_id);
+                    let has_cache = same_device && !self.conversations.is_empty();
+
                     self.view_mode = ViewMode::ConversationList;
                     self.sms_device_id = Some(device_id.clone());
                     self.sms_device_name = device_name;
-                    self.sms_loading = true;
-                    self.conversations.clear();
-                    self.contacts = ContactLookup::load_for_device(&device_id);
-                    tracing::info!("Opening SMS view for device: {}", device_id);
-                    return cosmic::app::Task::perform(
-                        fetch_conversations_async(conn.clone(), device_id),
-                        cosmic::Action::App,
-                    );
+
+                    if has_cache {
+                        // Use cached conversations, trigger background refresh
+                        self.sms_loading = false;
+                        tracing::info!(
+                            "Using cached {} conversations for device: {}",
+                            self.conversations.len(),
+                            device_id
+                        );
+                        // Trigger background refresh to get any new conversations
+                        return cosmic::app::Task::perform(
+                            fetch_conversations_async(conn.clone(), device_id),
+                            cosmic::Action::App,
+                        );
+                    } else {
+                        // No cache or different device - clear and fetch
+                        self.sms_loading = true;
+                        self.conversations.clear();
+                        self.message_cache.clear();
+                        self.contacts = ContactLookup::load_for_device(&device_id);
+                        tracing::info!("Opening SMS view for device: {}", device_id);
+                        return cosmic::app::Task::perform(
+                            fetch_conversations_async(conn.clone(), device_id),
+                            cosmic::Action::App,
+                        );
+                    }
                 }
             }
             Message::CloseSmsView => {
                 self.view_mode = ViewMode::DevicePage;
-                self.sms_device_id = None;
-                self.sms_device_name = None;
-                self.conversations.clear();
+                // Keep sms_device_id, sms_device_name, conversations, contacts, and
+                // message_cache for when user returns to SMS view
                 self.messages.clear();
                 self.current_thread_id = None;
                 self.current_thread_address = None;
                 self.sms_loading = false;
                 self.sms_compose_text.clear();
                 self.sms_sending = false;
-                // Clear message cache when leaving SMS view
-                self.message_cache.clear();
             }
             Message::OpenConversation(thread_id) => {
                 if let Some(conn) = &self.dbus_connection {
@@ -2858,7 +2877,7 @@ fn sms_notification_subscription() -> impl futures_util::Stream<Item = Message> 
     })
 }
 
-/// Fetch SMS conversations for a device.
+/// Fetch SMS conversations for a device using signal-based loading.
 async fn fetch_conversations_async(conn: Arc<Mutex<Connection>>, device_id: String) -> Message {
     let conn = conn.lock().await;
 
@@ -2882,24 +2901,284 @@ async fn fetch_conversations_async(conn: Arc<Mutex<Connection>>, device_id: Stri
         }
     };
 
-    // Request the phone to send all conversation threads
-    if let Err(e) = conversations_proxy.request_all_conversation_threads().await {
-        tracing::warn!("Failed to request conversation threads: {}", e);
-        // Continue anyway, conversations may already be cached
-    }
-
-    // Brief delay to allow the phone to respond
-    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-
-    match conversations_proxy.active_conversations().await {
-        Ok(values) => {
-            tracing::info!("Received {} conversation values from D-Bus", values.len());
-            let conversations = parse_conversations(values);
-            tracing::info!("Parsed {} conversations", conversations.len());
+    // Try signal-based loading first
+    match fetch_conversations_via_signals(&conversations_proxy).await {
+        Ok(conversations) => {
+            tracing::info!(
+                "Signal-based loading succeeded with {} conversations",
+                conversations.len()
+            );
             Message::ConversationsLoaded(conversations)
         }
-        Err(e) => Message::SmsError(format!("Failed to get conversations: {}", e)),
+        Err(e) => {
+            tracing::warn!(
+                "Signal-based conversation loading failed: {}, using fallback",
+                e
+            );
+            fetch_conversations_fallback(&conversations_proxy).await
+        }
     }
+}
+
+/// Fetch conversations using D-Bus signals for reliable loading.
+async fn fetch_conversations_via_signals(
+    conversations_proxy: &ConversationsProxy<'_>,
+) -> Result<Vec<ConversationSummary>, String> {
+    use kdeconnect_dbus::plugins::{parse_sms_message, MAX_CONVERSATIONS};
+
+    // Subscribe to signals BEFORE requesting data
+    let mut created_stream = conversations_proxy
+        .receive_conversation_created()
+        .await
+        .map_err(|e| format!("Failed to subscribe to conversationCreated: {}", e))?;
+
+    let mut updated_stream = conversations_proxy
+        .receive_conversation_updated()
+        .await
+        .map_err(|e| format!("Failed to subscribe to conversationUpdated: {}", e))?;
+
+    let mut loaded_stream = conversations_proxy
+        .receive_conversation_loaded()
+        .await
+        .map_err(|e| format!("Failed to subscribe to conversationLoaded: {}", e))?;
+
+    // Get cached conversations first
+    let cached = conversations_proxy.active_conversations().await.ok();
+    let mut conversations_map: HashMap<i64, ConversationSummary> = HashMap::new();
+
+    if let Some(values) = cached {
+        tracing::info!("Loaded {} cached conversation values", values.len());
+        for summary in parse_conversations(values) {
+            conversations_map.insert(summary.thread_id, summary);
+        }
+        tracing::info!(
+            "Parsed {} cached conversations",
+            conversations_map.len()
+        );
+    }
+
+    // Request fresh data from the phone
+    if let Err(e) = conversations_proxy.request_all_conversation_threads().await {
+        tracing::warn!("Failed to request conversation threads: {}", e);
+        // If we have cached data, return it; otherwise propagate error
+        if !conversations_map.is_empty() {
+            let mut result: Vec<ConversationSummary> = conversations_map.into_values().collect();
+            result.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+            result.truncate(MAX_CONVERSATIONS);
+            return Ok(result);
+        }
+        return Err(format!("Failed to request conversations: {}", e));
+    }
+
+    // Activity-based timeout tracking
+    let overall_timeout = tokio::time::Duration::from_secs(15);
+    let activity_timeout = tokio::time::Duration::from_millis(500);
+    let start_time = tokio::time::Instant::now();
+    let mut last_activity = tokio::time::Instant::now();
+    let mut loaded_signal_received = false;
+
+    loop {
+        tokio::select! {
+            biased;
+
+            // Check for conversationCreated signals (new conversations)
+            Some(signal) = created_stream.next() => {
+                last_activity = tokio::time::Instant::now();
+                match signal.args() {
+                    Ok(args) => {
+                        if let Some(msg) = parse_sms_message(&args.msg) {
+                            tracing::debug!("conversationCreated: thread {}", msg.thread_id);
+                            // Only update if newer or not present
+                            let should_update = conversations_map
+                                .get(&msg.thread_id)
+                                .map(|existing| msg.date > existing.timestamp)
+                                .unwrap_or(true);
+                            if should_update {
+                                conversations_map.insert(msg.thread_id, ConversationSummary {
+                                    thread_id: msg.thread_id,
+                                    address: msg.address,
+                                    last_message: msg.body,
+                                    timestamp: msg.date,
+                                    unread: !msg.read,
+                                });
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to parse conversationCreated signal: {}", e);
+                    }
+                }
+            }
+
+            // Check for conversationUpdated signals (updated conversations)
+            Some(signal) = updated_stream.next() => {
+                last_activity = tokio::time::Instant::now();
+                match signal.args() {
+                    Ok(args) => {
+                        if let Some(msg) = parse_sms_message(&args.msg) {
+                            tracing::debug!("conversationUpdated: thread {}", msg.thread_id);
+                            // Only update if newer or not present
+                            let should_update = conversations_map
+                                .get(&msg.thread_id)
+                                .map(|existing| msg.date > existing.timestamp)
+                                .unwrap_or(true);
+                            if should_update {
+                                conversations_map.insert(msg.thread_id, ConversationSummary {
+                                    thread_id: msg.thread_id,
+                                    address: msg.address,
+                                    last_message: msg.body,
+                                    timestamp: msg.date,
+                                    unread: !msg.read,
+                                });
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to parse conversationUpdated signal: {}", e);
+                    }
+                }
+            }
+
+            // Check for conversationLoaded signals (indicates activity)
+            Some(_signal) = loaded_stream.next() => {
+                last_activity = tokio::time::Instant::now();
+                loaded_signal_received = true;
+                tracing::debug!("conversationLoaded signal received");
+            }
+
+            // Check timeouts every 50ms
+            _ = tokio::time::sleep(tokio::time::Duration::from_millis(50)) => {
+                let elapsed = start_time.elapsed();
+                let since_activity = last_activity.elapsed();
+
+                // Overall timeout - hard limit
+                if elapsed >= overall_timeout {
+                    tracing::warn!(
+                        "Overall timeout reached after {:?}, collected {} conversations",
+                        elapsed,
+                        conversations_map.len()
+                    );
+                    break;
+                }
+
+                // Activity timeout - stop if no signals for 500ms (but only after receiving data)
+                if loaded_signal_received && since_activity >= activity_timeout {
+                    tracing::info!(
+                        "Activity timeout - no signals for {:?}, collected {} conversations",
+                        since_activity,
+                        conversations_map.len()
+                    );
+                    break;
+                }
+            }
+        }
+    }
+
+    // Drain any remaining buffered signals
+    'drain: loop {
+        tokio::select! {
+            biased;
+            Some(signal) = created_stream.next() => {
+                if let Ok(args) = signal.args() {
+                    if let Some(msg) = parse_sms_message(&args.msg) {
+                        let should_update = conversations_map
+                            .get(&msg.thread_id)
+                            .map(|existing| msg.date > existing.timestamp)
+                            .unwrap_or(true);
+                        if should_update {
+                            conversations_map.insert(msg.thread_id, ConversationSummary {
+                                thread_id: msg.thread_id,
+                                address: msg.address,
+                                last_message: msg.body,
+                                timestamp: msg.date,
+                                unread: !msg.read,
+                            });
+                        }
+                    }
+                }
+            }
+            Some(signal) = updated_stream.next() => {
+                if let Ok(args) = signal.args() {
+                    if let Some(msg) = parse_sms_message(&args.msg) {
+                        let should_update = conversations_map
+                            .get(&msg.thread_id)
+                            .map(|existing| msg.date > existing.timestamp)
+                            .unwrap_or(true);
+                        if should_update {
+                            conversations_map.insert(msg.thread_id, ConversationSummary {
+                                thread_id: msg.thread_id,
+                                address: msg.address,
+                                last_message: msg.body,
+                                timestamp: msg.date,
+                                unread: !msg.read,
+                            });
+                        }
+                    }
+                }
+            }
+            _ = tokio::time::sleep(tokio::time::Duration::from_millis(5)) => {
+                break 'drain;
+            }
+        }
+    }
+
+    // Sort by timestamp descending (most recent first)
+    let mut result: Vec<ConversationSummary> = conversations_map.into_values().collect();
+    result.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    result.truncate(MAX_CONVERSATIONS);
+
+    tracing::info!("Final: {} conversations loaded via signals", result.len());
+    Ok(result)
+}
+
+/// Fallback conversation fetching using polling when signal subscription fails.
+async fn fetch_conversations_fallback(conversations_proxy: &ConversationsProxy<'_>) -> Message {
+    // Request the phone to send data
+    if let Err(e) = conversations_proxy.request_all_conversation_threads().await {
+        tracing::warn!("Fallback: Failed to request conversation threads: {}", e);
+    }
+
+    // Poll with increasing delays
+    let delays = [500, 1000, 1500, 2000, 3000];
+    let mut best_result: Vec<ConversationSummary> = Vec::new();
+
+    for (attempt, delay) in delays.iter().enumerate() {
+        tokio::time::sleep(std::time::Duration::from_millis(*delay)).await;
+
+        match conversations_proxy.active_conversations().await {
+            Ok(values) => {
+                let conversations = parse_conversations(values);
+                tracing::info!(
+                    "Fallback attempt {}: Found {} conversations",
+                    attempt + 1,
+                    conversations.len()
+                );
+
+                // Keep the best result
+                if conversations.len() > best_result.len() {
+                    best_result = conversations;
+                }
+
+                // Stop early if we have enough conversations
+                if best_result.len() >= 5 {
+                    tracing::info!(
+                        "Fallback: Found {} conversations, stopping early",
+                        best_result.len()
+                    );
+                    break;
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Fallback attempt {} failed: {}", attempt + 1, e);
+            }
+        }
+    }
+
+    tracing::info!(
+        "Fallback complete: {} conversations loaded",
+        best_result.len()
+    );
+    Message::ConversationsLoaded(best_result)
 }
 
 /// Fetch messages for a specific conversation thread using D-Bus signals.

@@ -62,6 +62,11 @@ pub trait Conversations {
     #[zbus(signal, name = "conversationLoaded")]
     fn conversation_loaded(&self, conversation_id: i64, message_count: u64) -> zbus::Result<()>;
 
+    /// Signal emitted when a new conversation is created (first message received).
+    /// The msg parameter contains the conversation data as a variant.
+    #[zbus(signal, name = "conversationCreated")]
+    fn conversation_created(&self, msg: OwnedValue) -> zbus::Result<()>;
+
     /// Reply to an existing conversation thread with a text message.
     ///
     /// # Arguments
