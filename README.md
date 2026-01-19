@@ -13,11 +13,14 @@ Also, this is an alpha. I want your comments, but this is an alpha.
 - **Device Management** - Pair, unpair, and monitor connected devices
 - **SMS Messaging** - View conversations, read messages, reply, and compose new messages with contact lookup
 - **File Sharing** - Send files and URLs to your phone
+- **File Receive Notifications** - Get notified when files are received from your phone
 - **Clipboard Sync** - Send clipboard content to your device
 - **Notifications** - View and dismiss phone notifications from your desktop
 - **Battery Status** - Monitor phone battery level and charging state
 - **Media Controls** - Control music playback on your phone (play/pause, next/previous, volume)
+- **Find My Phone** - Ring your phone to locate it
 - **SMS Desktop Notifications** - Get notified when new SMS messages arrive (with privacy controls)
+- **Call Notifications** - Get notified of incoming and missed calls (with privacy controls)
 - **Ping** - Send a ping to locate your phone
 
 ## Requirements
@@ -80,11 +83,15 @@ Settings are accessible through the applet's settings menu (gear icon). Options 
 
 - **Show battery percentage** - Display battery level in device list
 - **Show offline devices** - Show paired devices that aren't currently connected
+- **File notifications** - Enable desktop notifications for received files
 - **SMS notifications** - Enable desktop notifications for incoming SMS
   - Show sender name (privacy option)
   - Show message content (privacy option)
+- **Call notifications** - Enable desktop notifications for incoming/missed calls
+  - Show contact name (privacy option)
+  - Show phone number (privacy option)
 
-Configuration is stored in `~/.config/cosmic/com.github.cosmic-connect-applet/v2/`
+Configuration is stored in `~/.config/cosmic/com.github.cosmic-connect-applet/v3/`
 
 ## Architecture
 
