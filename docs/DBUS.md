@@ -1,8 +1,58 @@
-# D-Bus Testing Commands
+# D-Bus Interface Reference
 
-Reference commands for testing KDE Connect D-Bus interfaces from the command line.
+KDE Connect D-Bus interfaces and testing commands.
 
-## Basic Operations
+## Interface Reference
+
+| Interface | Path | Purpose |
+|-----------|------|---------|
+| `org.kde.kdeconnect.daemon` | `/modules/kdeconnect` | Device discovery, announcements |
+| `org.kde.kdeconnect.device` | `/modules/kdeconnect/devices/<id>` | Per-device operations, pairing |
+| `org.kde.kdeconnect.device.battery` | (same + /battery) | Battery status (charge, isCharging) |
+| `org.kde.kdeconnect.device.clipboard` | (same + /clipboard) | Clipboard sync |
+| `org.kde.kdeconnect.device.findmyphone` | (same + /findmyphone) | Trigger phone to ring |
+| `org.kde.kdeconnect.device.mprisremote` | (same + /mprisremote) | Media player control |
+| `org.kde.kdeconnect.device.ping` | (same + /ping) | Send ping to device |
+| `org.kde.kdeconnect.device.notifications` | (same + /notifications) | List active notifications |
+| `org.kde.kdeconnect.device.share` | (same + /share) | File/URL sharing |
+| `org.kde.kdeconnect.device.sms` | (same + /sms) | Request SMS conversations |
+| `org.kde.kdeconnect.device.conversations` | `/modules/kdeconnect/devices/<id>` | SMS data and signals |
+| `org.kde.kdeconnect.device.telephony` | (same + /telephony) | Call notifications |
+
+## Property Naming Convention
+
+KDE Connect uses camelCase for D-Bus property names. In zbus, explicitly specify names:
+
+```rust
+#[zbus(property, name = "isCharging")]
+fn is_charging(&self) -> zbus::Result<bool>;
+
+#[zbus(property, name = "isPairRequested")]
+fn is_pair_requested(&self) -> zbus::Result<bool>;
+```
+
+## Signal Subscription
+
+To receive real-time updates, subscribe to D-Bus signals using match rules:
+
+```rust
+use zbus::fdo::DBusProxy;
+
+let dbus_proxy = DBusProxy::new(&conn).await?;
+let rule = zbus::MatchRule::builder()
+    .msg_type(zbus::message::Type::Signal)
+    .sender("org.kde.kdeconnect.daemon")
+    .map(|b| b.build())?;
+dbus_proxy.add_match_rule(rule).await?;
+
+let stream = zbus::MessageStream::from(&conn);
+```
+
+Without explicit match rules, D-Bus signals may not be delivered.
+
+## Testing Commands
+
+### Basic Operations
 
 ```bash
 # List paired devices
@@ -24,7 +74,7 @@ dbus-send --session --print-reply \
   org.kde.kdeconnect.device.ping.sendPing
 ```
 
-## Device Operations
+### Device Operations
 
 ```bash
 # Get device name
@@ -48,7 +98,7 @@ dbus-send --session --print-reply \
   org.kde.kdeconnect.device.requestPairing
 ```
 
-## Battery Plugin
+### Battery Plugin
 
 ```bash
 # Get battery charge level
@@ -66,7 +116,7 @@ dbus-send --session --print-reply \
   string:org.kde.kdeconnect.device.battery string:isCharging
 ```
 
-## Monitoring Signals
+### Monitoring Signals
 
 ```bash
 # Watch all KDE Connect signals
@@ -76,7 +126,7 @@ dbus-monitor --session "sender='org.kde.kdeconnect.daemon'"
 dbus-monitor --session "path='/modules/kdeconnect/devices/<device-id>'"
 ```
 
-## Using busctl (alternative)
+### Using busctl
 
 ```bash
 # List all KDE Connect objects
