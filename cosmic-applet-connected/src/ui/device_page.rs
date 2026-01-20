@@ -124,7 +124,7 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
 
         // Find Phone action item (no chevron - immediate action)
         let find_row = row![
-            icon::from_name("phonelink-ring-symbolic").size(24),
+            icon::from_name("audio-volume-high-symbolic").size(24),
             text(fl!("find-phone")).size(14),
             widget::horizontal_space(),
         ]
