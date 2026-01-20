@@ -190,24 +190,12 @@ fn build_status_row<'a>(device: &'a DeviceInfo) -> Element<'a, Message> {
     } else {
         "window-close-symbolic" // X mark
     };
-    let connected_content = row![
+    let connected_element = row![
         icon::from_name(connected_icon_name).size(16),
         text(fl!("connected")).size(12),
     ]
     .spacing(4)
     .align_y(Alignment::Center);
-    let connected_tooltip_text = if device.is_reachable {
-        fl!("tooltip-connected")
-    } else {
-        fl!("tooltip-not-connected")
-    };
-    let connected_element = tooltip(
-        connected_content,
-        text(connected_tooltip_text).size(11),
-        tooltip::Position::Bottom,
-    )
-    .gap(4)
-    .padding(8);
 
     // Paired status (center-aligned) - use icon to indicate status
     let paired_icon_name = if device.is_paired {
@@ -215,24 +203,12 @@ fn build_status_row<'a>(device: &'a DeviceInfo) -> Element<'a, Message> {
     } else {
         "window-close-symbolic" // X mark
     };
-    let paired_content = row![
+    let paired_element = row![
         icon::from_name(paired_icon_name).size(16),
         text(fl!("paired")).size(12),
     ]
     .spacing(4)
     .align_y(Alignment::Center);
-    let paired_tooltip_text = if device.is_paired {
-        fl!("tooltip-paired")
-    } else {
-        fl!("tooltip-not-paired")
-    };
-    let paired_element = tooltip(
-        paired_content,
-        text(paired_tooltip_text).size(11),
-        tooltip::Position::Bottom,
-    )
-    .gap(4)
-    .padding(8);
 
     // Battery status (right-aligned) - percentage text + icon
     // KDE Connect returns -1 when battery level is unknown, so filter those out
@@ -240,24 +216,12 @@ fn build_status_row<'a>(device: &'a DeviceInfo) -> Element<'a, Message> {
         if let (Some(level), Some(charging)) = (device.battery_level, device.battery_charging) {
             if level >= 0 {
                 let icon_name = get_battery_icon_name(level, charging);
-                let battery_content = row![
+                row![
                     text(format!("{}%", level)).size(12),
                     icon::from_name(icon_name).size(24),
                 ]
                 .spacing(4)
-                .align_y(Alignment::Center);
-                let tooltip_text = if charging {
-                    fl!("tooltip-battery-charging", level = level)
-                } else {
-                    fl!("tooltip-battery", level = level)
-                };
-                tooltip(
-                    battery_content,
-                    text(tooltip_text).size(11),
-                    tooltip::Position::Bottom,
-                )
-                .gap(4)
-                .padding(8)
+                .align_y(Alignment::Center)
                 .into()
             } else {
                 // Battery level is -1 (unknown) - don't show

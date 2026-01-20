@@ -34,13 +34,6 @@ battery = Battery
 battery-level = { $level }%
 charging = charging
 
-# Status tooltips
-tooltip-connected = Device is connected
-tooltip-not-connected = Device is not connected
-tooltip-paired = Device is paired
-tooltip-not-paired = Device is not paired
-tooltip-battery = Battery: { $level }%
-tooltip-battery-charging = Battery: { $level }% (charging)
 pairing-request = Pairing request
 pairing = Pairing...
 connected-paired = Connected and paired
