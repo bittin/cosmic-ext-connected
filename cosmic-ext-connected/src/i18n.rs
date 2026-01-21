@@ -1,4 +1,4 @@
-//! Localization support for COSMIC Connected applet.
+//! Localization support for Connected applet.
 
 use i18n_embed::{
     fluent::{fluent_language_loader, FluentLanguageLoader},

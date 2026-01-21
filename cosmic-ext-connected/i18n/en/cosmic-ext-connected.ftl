@@ -1,7 +1,7 @@
-# COSMIC Connected Applet - English translations
+# Connected Applet - English translations
 
 # Application
-app-title = COSMIC Connected
+app-title = Connected
 
 # General UI
 back = Back

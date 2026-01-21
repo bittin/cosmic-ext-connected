@@ -1156,7 +1156,7 @@ impl Application for StandaloneApp {
                             .summary(&summary)
                             .body(&body)
                             .icon("phone-symbolic")
-                            .appname("COSMIC Connected")
+                            .appname("Connected")
                             .show()
                         {
                             tracing::warn!("Failed to show SMS notification: {}", e);

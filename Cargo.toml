@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "cosmic-applet-connected",
+    "cosmic-ext-connected",
     "kdeconnect-dbus",
 ]
 

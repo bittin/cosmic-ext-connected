@@ -1,4 +1,4 @@
-//! Reusable UI widgets for the COSMIC Connected applet.
+//! Reusable UI widgets for the Connected applet.
 
 // Placeholder for custom widgets
 // Examples: battery indicator, connection status badge, etc.

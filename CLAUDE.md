@@ -1,10 +1,10 @@
 # CLAUDE.md
 
-Guidance for Claude Code when working with cosmic-connected-applet.
+Guidance for Claude Code when working with cosmic-ext-connected.
 
 ## Project Overview
 
-COSMIC Connected is a panel applet for the COSMIC desktop environment providing phone-to-desktop connectivity. It uses KDE Connect's daemon (`kdeconnectd`) as a D-Bus backend while providing a native libcosmic UI.
+Connected is a panel applet for the COSMIC™ desktop environment providing phone-to-desktop connectivity. It uses KDE Connect's daemon (`kdeconnectd`) as a D-Bus backend while providing a native libcosmic UI.
 
 **Key Principle:** This project does NOT modify KDE Connect. It consumes kdeconnectd as a D-Bus service.
 
@@ -12,8 +12,8 @@ COSMIC Connected is a panel applet for the COSMIC desktop environment providing 
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  COSMIC Connected Applet (Rust)                                 │
-│  ├── cosmic-applet-connected/  (UI layer - libcosmic)          │
+│  Connected Applet (Rust)                                        │
+│  ├── cosmic-ext-connected/     (UI layer - libcosmic)          │
 │  └── kdeconnect-dbus/          (D-Bus client - zbus)           │
 └──────────────────────┬──────────────────────────────────────────┘
                        │ D-Bus (org.kde.kdeconnect.*)
@@ -33,7 +33,7 @@ COSMIC Connected is a panel applet for the COSMIC desktop environment providing 
 ```bash
 cargo build                              # Build all crates
 cargo build --release                    # Build release
-cargo run -p cosmic-applet-connected     # Run (requires COSMIC)
+cargo run -p cosmic-ext-connected        # Run (requires COSMIC)
 cargo test && cargo clippy               # Test and lint
 just install                             # Install to system
 just uninstall                           # Uninstall
@@ -41,13 +41,13 @@ just uninstall                           # Uninstall
 
 **Development cycle:** `cargo build --release && sudo just install && killall cosmic-panel`
 
-**Debug logs:** `journalctl --user -f | grep cosmic-applet-connected`
+**Debug logs:** `journalctl --user -f | grep cosmic-ext-connected`
 
 ## Project Structure
 
 ```
-cosmic-connected-applet/
-├── cosmic-applet-connected/src/
+cosmic-ext-connected/
+├── cosmic-ext-connected/src/
 │   ├── app.rs              # Core: ConnectApplet, Message enum, update()
 │   ├── config.rs           # User preferences (cosmic_config)
 │   ├── subscriptions.rs    # D-Bus signal subscriptions

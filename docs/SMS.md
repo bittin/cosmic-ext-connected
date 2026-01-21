@@ -1,6 +1,6 @@
 # SMS Implementation
 
-Details on SMS messaging functionality in COSMIC Connected.
+Details on SMS messaging functionality in Connected.
 
 ## Signal-Based Data Fetching
 

@@ -1,8 +1,8 @@
-# COSMIC Connected
+# Connected
 
-A native COSMIC desktop applet for phone-to-desktop connectivity, powered by KDE Connect.
+A phone connectivity applet for the COSMIC™ desktop, powered by KDE Connect.
 
-COSMIC Connected connects your Android phone to your COSMIC desktop, enabling SMS messaging, file sharing, notifications, media control, and more—all through a native libcosmic interface.
+Connected links your Android phone to your COSMIC desktop, enabling SMS messaging, file sharing, notifications, media control, and more—all through a native libcosmic interface.
 
 Personal note: This project relied on Claude Code as a senior developer. My programming experience was at one time competent, but is outdated by decades. This project is much more than an afternoon vibe code - but the coding was done by Claude. It allowed me to create the app I needed, and I thought others might want it as well.
 
@@ -46,8 +46,8 @@ Personal note: This project relied on Claude Code as a senior developer. My prog
 
 2. **Clone and build:**
    ```bash
-   git clone https://github.com/nwxnw/cosmic-connect-applet.git
-   cd cosmic-connect-applet
+   git clone https://github.com/nwxnw/cosmic-ext-connected.git
+   cd cosmic-ext-connected
    cargo build --release
    ```
 
@@ -89,13 +89,13 @@ Settings are accessible through the applet's settings menu (gear icon). Options 
   - Show contact name (privacy option)
   - Show phone number (privacy option)
 
-Configuration is stored in `~/.config/cosmic/com.github.cosmic-connected-applet/v4/`
+Configuration is stored in `~/.config/cosmic/io.github.nwxnw.connected/v6/`
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  COSMIC Connected Applet (Rust/libcosmic)                      │
+│  Connected Applet (Rust/libcosmic)                              │
 └──────────────────────┬──────────────────────────────────────────┘
                        │ D-Bus
                        ▼
@@ -109,7 +109,7 @@ Configuration is stored in `~/.config/cosmic/com.github.cosmic-connected-applet/
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-COSMIC Connected acts as a native UI frontend to the KDE Connect daemon, communicating via D-Bus. The daemon handles all network connectivity, encryption, and protocol details.
+Connected acts as a native UI frontend to the KDE Connect daemon, communicating via D-Bus. The daemon handles all network connectivity, encryption, and protocol details.
 
 ## Building
 
@@ -136,7 +136,7 @@ Contributions are welcome! Please feel free to submit issues and pull requests.
 
 ### Development Tips
 
-- Debug logging: `RUST_LOG=cosmic_applet_connected=debug cargo run`
+- Debug logging: `RUST_LOG=cosmic_ext_connected=debug cargo run`
 - See `CLAUDE.md` for detailed development documentation
 
 ## License

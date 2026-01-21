@@ -1,6 +1,6 @@
 # Known Issues
 
-Known issues and workarounds in COSMIC Connected.
+Known issues and workarounds in Connected.
 
 ## Group MMS Sending Not Supported
 
@@ -12,7 +12,7 @@ Sending messages to group MMS conversations (multiple recipients) does not work 
 
 - Replying to a group message thread silently fails
 - D-Bus call to `sendSms` returns success but message never appears on phone
-- Affects COSMIC Connected, native KDE Connect SMS app, and kdeconnect-cli alike
+- Affects Connected, native KDE Connect SMS app, and kdeconnect-cli alike
 
 ### Technical Details
 

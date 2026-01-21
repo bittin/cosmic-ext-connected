@@ -1,13 +1,13 @@
 # Changelog
 
-All notable changes to COSMIC Connected will be documented in this file.
+All notable changes to Connected will be documented in this file.
 
 ## [Unreleased]
 
 ### Changed
-- Renamed applet from "COSMIC Connect" to "COSMIC Connected"
-- Renamed package from `cosmic-applet-connect` to `cosmic-applet-connected`
-- Renamed APP_ID from `com.github.cosmic-connect-applet` to `com.github.cosmic-connected-applet`
+- Renamed applet from "COSMIC Connect" to "Connected"
+- Renamed package from `cosmic-applet-connect` to `cosmic-ext-connected`
+- Renamed APP_ID from `com.github.cosmic-connect-applet` to `io.github.nwxnw.connected`
 - SMS compose now sends message on Enter key press
 
 ### Added

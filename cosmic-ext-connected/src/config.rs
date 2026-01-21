@@ -1,10 +1,10 @@
-//! Configuration management for the COSMIC Connected applet.
+//! Configuration management for the Connected applet.
 
 use cosmic::cosmic_config::{self, cosmic_config_derive::CosmicConfigEntry, CosmicConfigEntry};
 use serde::{Deserialize, Serialize};
 
 /// Application ID for configuration storage.
-pub const APP_ID: &str = "com.github.cosmic-connected-applet";
+pub const APP_ID: &str = "io.github.nwxnw.connected";
 
 /// Applet configuration stored in COSMIC's config system.
 #[derive(Debug, Clone, Serialize, Deserialize, CosmicConfigEntry, PartialEq, Eq)]

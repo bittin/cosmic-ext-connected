@@ -1,4 +1,4 @@
-# Justfile for cosmic-connected-applet
+# Justfile for cosmic-ext-connected
 # Install just: cargo install just
 
 # Installation paths
@@ -7,8 +7,8 @@ bindir := prefix / 'bin'
 sharedir := prefix / 'share'
 
 # Applet metadata
-applet_name := 'cosmic-applet-connected'
-desktop_file := 'com.github.cosmic-connected-applet.desktop'
+applet_name := 'cosmic-ext-connected'
+desktop_file := 'io.github.nwxnw.connected.desktop'
 
 # Default recipe - show available commands
 default:
@@ -24,15 +24,15 @@ build-release:
 
 # Run the applet (for testing)
 run:
-    cargo run -p cosmic-applet-connected
+    cargo run -p cosmic-ext-connected
 
 # Run in standalone window mode (for development)
 run-standalone:
-    cargo run -p cosmic-applet-connected -- --standalone
+    cargo run -p cosmic-ext-connected -- --standalone
 
 # Run standalone with debug logging
 run-debug:
-    RUST_LOG=cosmic_applet_connected=debug cargo run -p cosmic-applet-connected -- --standalone
+    RUST_LOG=cosmic_ext_connected=debug cargo run -p cosmic-ext-connected -- --standalone
 
 # Install the applet to the system (builds first, requires sudo)
 # Note: May fail under sudo if cargo not in PATH. Use install-only instead.

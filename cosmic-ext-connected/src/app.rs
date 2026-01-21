@@ -1,4 +1,4 @@
-//! Main application state and logic for the COSMIC Connected applet.
+//! Main application state and logic for the Connected applet.
 
 use crate::config::Config;
 use crate::constants::{
@@ -472,7 +472,7 @@ impl Application for ConnectApplet {
     type Flags = ();
     type Message = Message;
 
-    const APP_ID: &'static str = "com.github.cosmic-connected-applet";
+    const APP_ID: &'static str = "io.github.nwxnw.connected";
 
     fn core(&self) -> &Core {
         &self.core
@@ -2009,7 +2009,7 @@ impl Application for ConnectApplet {
                                 .summary(&summary)
                                 .body(&body)
                                 .icon("phone-symbolic")
-                                .appname("COSMIC Connected")
+                                .appname("Connected")
                                 .show()
                         })
                         .await;
@@ -2080,7 +2080,7 @@ impl Application for ConnectApplet {
                                 .summary(&summary)
                                 .body(&device_name)
                                 .icon(icon)
-                                .appname("COSMIC Connected")
+                                .appname("Connected")
                                 .urgency(urgency)
                                 .show()
                         })
@@ -2127,7 +2127,7 @@ impl Application for ConnectApplet {
                                     .summary(&summary)
                                     .body(&file_name_clone)
                                     .icon("folder-download-symbolic")
-                                    .appname("COSMIC Connected")
+                                    .appname("Connected")
                                     .timeout(notify_rust::Timeout::Milliseconds(FILE_TIMEOUT_MS))
                                     .show()
                             })

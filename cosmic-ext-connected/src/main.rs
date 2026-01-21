@@ -1,4 +1,4 @@
-//! COSMIC Connected applet entry point.
+//! Connected applet entry point.
 //!
 //! This applet provides phone-to-desktop connectivity via KDE Connect,
 //! with a native COSMIC desktop interface.
@@ -21,7 +21,7 @@ fn main() -> cosmic::iced::Result {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("cosmic_applet_connected=debug".parse().unwrap()),
+                .add_directive("cosmic_ext_connected=debug".parse().unwrap()),
         )
         .init();
 
@@ -29,6 +29,6 @@ fn main() -> cosmic::iced::Result {
     let requested_languages = i18n_embed::DesktopLanguageRequester::requested_languages();
     i18n::init(&requested_languages);
 
-    tracing::info!("Starting COSMIC Connected applet");
+    tracing::info!("Starting Connected applet");
     cosmic::applet::run::<ConnectApplet>(())
 }

@@ -1,6 +1,6 @@
 # UI Patterns
 
-libcosmic patterns and UI conventions used in COSMIC Connected.
+libcosmic patterns and UI conventions used in Connected.
 
 ## ViewMode Enum
 
@@ -154,7 +154,7 @@ let name = self.device_name.as_deref().unwrap_or(&default_name);
 Uses `cosmic_config` for persistent settings:
 
 ```rust
-// Location: ~/.config/cosmic/com.github.cosmic-connected-applet/v4/
+// Location: ~/.config/cosmic/io.github.nwxnw.connected/v4/
 
 // Load
 let config = Config::load();

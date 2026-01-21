@@ -28,7 +28,7 @@ notify_rust::Notification::new()
     .summary(&summary)  // "New SMS" or "New SMS from {name}"
     .body(&body)        // Message content or "Message received"
     .icon("phone-symbolic")
-    .appname("COSMIC Connected")
+    .appname("Connected")
     .show()
 ```
 
@@ -64,7 +64,7 @@ notify_rust::Notification::new()
     .summary(&summary)  // "Incoming Call" or "Incoming call from {name}"
     .body(&device_name) // Which device received the call
     .icon("call-start-symbolic")  // or "call-missed-symbolic"
-    .appname("COSMIC Connected")
+    .appname("Connected")
     .urgency(notify_rust::Urgency::Critical)
     .show()
 ```
@@ -93,7 +93,7 @@ notify_rust::Notification::new()
     .summary(&fl!("file-received-from", device = device_name))
     .body(&file_name)
     .icon("folder-download-symbolic")
-    .appname("COSMIC Connected")
+    .appname("Connected")
     .timeout(notify_rust::Timeout::Milliseconds(5000))
     .show()
 ```
