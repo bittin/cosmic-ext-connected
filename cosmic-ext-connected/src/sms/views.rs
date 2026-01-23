@@ -7,7 +7,7 @@ use cosmic::iced::widget::{column, row, text};
 use cosmic::iced::{Alignment, Length};
 use cosmic::widget;
 use cosmic::Element;
-use kdeconnect_dbus::contacts::{Contact, ContactLookup};
+use kdeconnect_dbus::contacts::ContactLookup;
 use kdeconnect_dbus::plugins::{is_address_valid, ConversationSummary, MessageType, SmsMessage};
 
 // --- Helper functions for loading state ---
@@ -429,7 +429,8 @@ pub struct NewMessageParams<'a> {
     pub body: &'a str,
     pub recipient_valid: bool,
     pub sending: bool,
-    pub contact_suggestions: &'a [Contact],
+    /// Contact suggestions as (contact_name, phone_number) tuples
+    pub contact_suggestions: &'a [(String, String)],
 }
 
 /// Render the new message compose view.
@@ -447,7 +448,8 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
     // Recipient input with validation indicator
     let recipient_input = widget::text_input(fl!("recipient-placeholder"), params.recipient)
         .on_input(Message::NewMessageRecipientInput)
-        .width(Length::Fill);
+        .width(Length::Fill)
+        .id(widget::Id::new("new-message-recipient"));
 
     let validation_icon: Element<Message> = if params.recipient.is_empty() {
         widget::Space::new(Length::Fixed(20.0), Length::Fixed(20.0)).into()
@@ -469,22 +471,18 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
     .padding([8, 12]);
 
     // Contact suggestions (show if recipient is being typed and we have matches)
+    // Each suggestion is a (contact_name, phone_number) tuple, sorted by conversation recency
     let suggestions_section: Element<Message> = if !params.recipient.is_empty()
         && !is_address_valid(params.recipient)
         && !params.contact_suggestions.is_empty()
     {
         let mut suggestions_col = column![].spacing(4);
-        for contact in params.contact_suggestions.iter().take(5) {
-            let name = contact.name.clone();
-            let phone = contact.phone_numbers.first().cloned().unwrap_or_default();
-            // Clone for display since we need to move into on_press
-            let display_name = name.clone();
-            let display_phone = phone.clone();
+        for (name, phone) in params.contact_suggestions.iter() {
             let contact_row = widget::button::custom(
                 widget::container(
                     row![
                         widget::icon::from_name("contact-new-symbolic").size(20),
-                        column![text(display_name).size(13), text(display_phone).size(11),]
+                        column![text(name.clone()).size(13), text(phone.clone()).size(11),]
                             .spacing(2),
                     ]
                     .spacing(8)
@@ -494,7 +492,7 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
                 .width(Length::Fill),
             )
             .class(cosmic::theme::Button::Text)
-            .on_press(Message::SelectContact(name, phone))
+            .on_press(Message::SelectContact(name.clone(), phone.clone()))
             .width(Length::Fill);
             suggestions_col = suggestions_col.push(contact_row);
         }

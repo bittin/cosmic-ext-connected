@@ -39,7 +39,8 @@ use cosmic::iced_runtime::core::window;
 use cosmic::widget;
 use cosmic::{Application, Element};
 use kdeconnect_dbus::{
-    contacts::{Contact, ContactLookup},
+    contacts::ContactLookup,
+    normalize_phone_number, phone_suffix,
     plugins::{is_address_valid, ConversationSummary, NotificationInfo, SmsMessage},
 };
 use lru::LruCache;
@@ -184,8 +185,6 @@ pub enum Message {
     OlderMessagesLoaded(i64, Vec<SmsMessage>, bool, Option<u64>),
     /// Message thread scrolled - used for prefetching older messages
     MessageThreadScrolled(scrollable::Viewport),
-    /// Copy SMS message text to clipboard
-    CopyMessageText(String),
     /// User started pressing a message bubble (for long-press copy)
     BubblePressStarted { uid: i32, body: String },
     /// User released press on message bubble
@@ -440,8 +439,8 @@ pub struct ConnectApplet {
     new_message_recipient_valid: bool,
     /// Whether new message is being sent
     new_message_sending: bool,
-    /// Contact suggestions for new message
-    contact_suggestions: Vec<Contact>,
+    /// Contact suggestions for new message: (contact_name, phone_number)
+    contact_suggestions: Vec<(String, String)>,
 
     // Media controls state
     /// Device ID for media controls view
@@ -482,6 +481,60 @@ impl ConnectApplet {
     /// Check if loading more messages (pagination)
     fn is_loading_more_messages(&self) -> bool {
         matches!(self.sms_loading_state, SmsLoadingState::LoadingMoreMessages)
+    }
+
+    /// Find the latest conversation timestamp for a phone number.
+    /// Uses suffix matching (last 10 digits) to handle format variations.
+    fn find_conversation_timestamp(&self, phone: &str) -> Option<i64> {
+        let phone_digits = normalize_phone_number(phone);
+        let target_suffix = phone_suffix(&phone_digits);
+
+        self.conversations
+            .iter()
+            .filter(|conv| {
+                conv.addresses.iter().any(|addr| {
+                    let addr_digits = normalize_phone_number(addr);
+                    let addr_suffix = phone_suffix(&addr_digits);
+                    target_suffix == addr_suffix
+                })
+            })
+            .map(|conv| conv.timestamp)
+            .max()
+    }
+
+    /// Generate contact suggestions with phone numbers sorted by conversation recency.
+    /// Returns (contact_name, phone_number) tuples, limited to max_suggestions.
+    fn generate_contact_suggestions(&self, query: &str, max_suggestions: usize) -> Vec<(String, String)> {
+        if query.is_empty() {
+            return Vec::new();
+        }
+
+        // Search for contacts matching the query (get more to account for multi-number expansion)
+        let matching_contacts = self.contacts.search_by_name(query, max_suggestions);
+
+        // Expand each contact into (name, phone, timestamp) entries
+        let mut entries: Vec<(String, String, Option<i64>)> = Vec::new();
+        for contact in matching_contacts {
+            for phone in &contact.phone_numbers {
+                let timestamp = self.find_conversation_timestamp(phone);
+                entries.push((contact.name.clone(), phone.clone(), timestamp));
+            }
+        }
+
+        // Sort by timestamp: most recent conversations first, then None (never contacted)
+        entries.sort_by(|a, b| match (&b.2, &a.2) {
+            (Some(ts_b), Some(ts_a)) => ts_b.cmp(ts_a), // Both have timestamps: recent first
+            (Some(_), None) => std::cmp::Ordering::Less, // b has timestamp, a doesn't: b first
+            (None, Some(_)) => std::cmp::Ordering::Greater, // a has timestamp, b doesn't: a first
+            (None, None) => std::cmp::Ordering::Equal,  // Neither has timestamp: keep order
+        });
+
+        // Take up to max_suggestions and drop the timestamp
+        entries
+            .into_iter()
+            .take(max_suggestions)
+            .map(|(name, phone, _)| (name, phone))
+            .collect()
     }
 }
 
@@ -1428,10 +1481,6 @@ impl Application for ConnectApplet {
                 }
             }
 
-            Message::CopyMessageText(text) => {
-                return clipboard::write(text);
-            }
-
             Message::BubblePressStarted { uid, body } => {
                 self.pressed_bubble_uid = Some(uid);
                 self.pressed_bubble_body = Some(body);
@@ -1780,6 +1829,8 @@ impl Application for ConnectApplet {
                 self.new_message_sending = false;
                 // Clear any previous suggestions; they will be populated by search
                 self.contact_suggestions.clear();
+                // Focus the recipient input field
+                return widget::text_input::focus(widget::Id::new("new-message-recipient"));
             }
             Message::CloseNewMessage => {
                 self.view_mode = ViewMode::ConversationList;
@@ -1790,13 +1841,8 @@ impl Application for ConnectApplet {
             }
             Message::NewMessageRecipientInput(text) => {
                 self.new_message_recipient_valid = is_address_valid(&text);
-                // Search for matching contacts by name (limit to 5 suggestions)
-                self.contact_suggestions = self
-                    .contacts
-                    .search_by_name(&text, 5)
-                    .into_iter()
-                    .cloned()
-                    .collect();
+                // Generate contact suggestions with all phone numbers, sorted by conversation recency
+                self.contact_suggestions = self.generate_contact_suggestions(&text, 10);
                 self.new_message_recipient = text;
             }
             Message::NewMessageBodyInput(text) => {

@@ -184,14 +184,14 @@ const SUFFIX_MATCH_DIGITS: usize = 10;
 
 /// Normalize a phone number by removing non-digit characters.
 /// Returns the full digit string for exact matching.
-fn normalize_phone_number(phone: &str) -> String {
+pub fn normalize_phone_number(phone: &str) -> String {
     phone.chars().filter(|c| c.is_ascii_digit()).collect()
 }
 
 /// Get the suffix of a phone number for fuzzy matching.
 /// Returns the last SUFFIX_MATCH_DIGITS digits, or all digits if shorter.
 /// This handles country code variations (e.g., +1-555-123-4567 matches 5551234567).
-fn phone_suffix(digits: &str) -> &str {
+pub fn phone_suffix(digits: &str) -> &str {
     if digits.len() > SUFFIX_MATCH_DIGITS {
         &digits[digits.len() - SUFFIX_MATCH_DIGITS..]
     } else {

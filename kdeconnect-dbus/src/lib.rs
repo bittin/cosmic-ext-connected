@@ -28,7 +28,7 @@ pub mod plugins;
 
 mod error;
 
-pub use contacts::{Contact, ContactLookup};
+pub use contacts::{normalize_phone_number, phone_suffix, Contact, ContactLookup};
 pub use daemon::DaemonProxy;
 pub use device::DeviceProxy;
 pub use error::{Error, Result};
