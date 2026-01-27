@@ -6,46 +6,66 @@ Details on SMS messaging functionality in Connected.
 
 Both conversation lists and individual messages are fetched using D-Bus signals rather than polling. This provides reliable loading regardless of phone response time.
 
-### Conversation List Loading
+### Conversation List Loading (Subscription-Based)
 
-`fetch_conversations_async` in `sms/fetch.rs`:
+Conversation lists use a **subscription-based** approach for incremental display, mirroring the pattern used by KDE Connect SMS app:
 
-1. Subscribes to `conversationCreated`, `conversationUpdated`, and `conversationLoaded` signals
-2. Loads cached conversations from `activeConversations()` first (instant display)
-3. Calls `requestAllConversationThreads()` to trigger fresh data from the phone
-4. Collects conversations from signals using activity-based timeout:
-   - Stops 500ms after the last signal (once data starts arriving)
-   - Hard timeout of 15 seconds maximum
-5. Falls back to polling if signal subscription fails
+```
+OpenSmsView → Set state, activate subscription
+                        ↓
+         Subscription sets up D-Bus match rules
+                        ↓
+         Load cached conversations via activeConversations()
+                        ↓
+         Emit ConversationReceived for each cached conversation
+                        ↓
+         Fire requestAllConversationThreads() D-Bus call
+                        ↓
+         conversationCreated/Updated signals → ConversationReceived messages
+                        ↓
+         Activity timeout (500ms) or hard timeout (20s) → ConversationSyncComplete
+```
+
+**Key implementation details:**
+
+1. `conversation_list_subscription` in `sms/conversation_subscription.rs` handles the entire flow
+2. Uses a state machine with three states: `Init`, `EmittingCached`, `Listening`
+3. Match rules are set up BEFORE firing the D-Bus request (prevents race conditions)
+4. Cached conversations emitted one-at-a-time for immediate UI updates
+5. New signals processed incrementally - each conversation appears as it arrives
+6. "Syncing conversations..." indicator shown while subscription is active
 
 ```rust
-// Signal-based loading with activity timeout
-let activity_timeout = Duration::from_millis(500);
-let overall_timeout = Duration::from_secs(15);
-
-loop {
-    tokio::select! {
-        Some(signal) = created_stream.next() => {
-            last_activity = Instant::now();
-        }
-        Some(signal) = updated_stream.next() => {
-            last_activity = Instant::now();
-        }
-        Some(_) = loaded_stream.next() => {
-            loaded_signal_received = true;
-            last_activity = Instant::now();
-        }
-        _ = sleep(Duration::from_millis(50)) => {
-            if loaded_signal_received && last_activity.elapsed() >= activity_timeout {
-                break; // Done - no signals for 500ms
-            }
-            if start_time.elapsed() >= overall_timeout {
-                break; // Hard timeout
-            }
-        }
-    }
+// State machine for incremental loading
+enum ConversationListState {
+    Init { device_id: String },
+    EmittingCached { pending_conversations: Vec<ConversationSummary>, ... },
+    Listening { stream: MessageStream, ... },
 }
 ```
+
+```rust
+// In app.rs - incremental display
+Message::ConversationReceived { device_id, conversation } => {
+    // Update or insert by thread_id
+    if let Some(existing) = self.conversations.iter_mut()
+        .find(|c| c.thread_id == conversation.thread_id)
+    {
+        if conversation.timestamp > existing.timestamp {
+            *existing = conversation;
+        }
+    } else {
+        self.conversations.push(conversation);
+    }
+    // Re-sort by timestamp (newest first)
+    self.conversations.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+}
+```
+
+**Benefits over batch loading:**
+- Conversations appear immediately as they arrive (no waiting for timeout)
+- Visual feedback during sync ("Syncing conversations...")
+- Mirrors KDE Connect SMS app's proven approach
 
 ### Message Thread Loading (Subscription-Based)
 
