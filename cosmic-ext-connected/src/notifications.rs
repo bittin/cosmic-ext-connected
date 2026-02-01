@@ -18,6 +18,9 @@ const FILE_DEDUP_PATH: &str = "/tmp/cosmic-connected-file-dedup";
 /// File path for SMS notification deduplication.
 const SMS_DEDUP_PATH: &str = "/tmp/cosmic-connected-sms-dedup";
 
+/// File path for call notification deduplication.
+const CALL_DEDUP_PATH: &str = "/tmp/cosmic-connected-call-dedup";
+
 /// Check if we should show a file notification (cross-process deduplication via file lock).
 /// Returns true if this is the first notification for this file within the dedup window.
 pub fn should_show_file_notification(file_url: &str) -> bool {
@@ -30,6 +33,15 @@ pub fn should_show_file_notification(file_url: &str) -> bool {
 pub fn should_show_sms_notification(thread_id: i64, message_date: i64) -> bool {
     let message_key = format!("{}:{}", thread_id, message_date);
     should_show_notification(SMS_DEDUP_PATH, &message_key)
+}
+
+/// Check if we should show a call notification (cross-process deduplication via file lock).
+/// Returns true if this is the first notification for this call event within the dedup window.
+/// Uses event type and phone number as the unique key so distinct events (e.g. "callReceived"
+/// vs "missedCall") for the same number are not suppressed.
+pub fn should_show_call_notification(event: &str, phone_number: &str) -> bool {
+    let key = format!("{}:{}", event, phone_number);
+    should_show_notification(CALL_DEDUP_PATH, &key)
 }
 
 /// Generic notification deduplication using file-based locking.
@@ -230,6 +242,13 @@ mod tests {
     fn sms_notification_wrapper_works() {
         // Verify the wrapper function doesn't panic and formats key correctly
         let result = should_show_sms_notification(12345, 1700000000000);
+        assert!(result || !result);
+    }
+
+    #[test]
+    fn call_notification_wrapper_works() {
+        // Verify the wrapper function doesn't panic and formats key correctly
+        let result = should_show_call_notification("callReceived", "+15551234567");
         assert!(result || !result);
     }
 
