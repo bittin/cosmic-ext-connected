@@ -2,7 +2,9 @@
 
 use crate::app::Message;
 use crate::constants::dbus::RETRY_DELAY_SECS;
-use crate::notifications::{should_show_file_notification, should_show_sms_notification};
+use crate::notifications::{
+    should_show_call_notification, should_show_file_notification, should_show_sms_notification,
+};
 use futures_util::StreamExt;
 use kdeconnect_dbus::plugins::{parse_sms_message, MessageType};
 use kdeconnect_dbus::DeviceProxy;
@@ -489,6 +491,16 @@ pub fn call_notification_subscription() -> impl futures_util::Stream<Item = Mess
                                                 if let Ok((event, phone_number, contact_name)) =
                                                     body.deserialize::<(String, String, String)>()
                                                 {
+                                                    // Cross-process deduplication:
+                                                    // COSMIC spawns multiple applet processes,
+                                                    // so use file-based locking to ensure only one shows the notification
+                                                    if !should_show_call_notification(
+                                                        &event,
+                                                        &phone_number,
+                                                    ) {
+                                                        continue;
+                                                    }
+
                                                     tracing::debug!(
                                                         "Call signal: {} from {} ({}) on device {}",
                                                         event,

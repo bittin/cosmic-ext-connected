@@ -50,6 +50,7 @@ cosmic-ext-connected/
 ├── cosmic-ext-connected/src/
 │   ├── app.rs              # Core: ConnectApplet, Message enum, update()
 │   ├── config.rs           # User preferences (cosmic_config)
+│   ├── notifications.rs    # Cross-process notification deduplication
 │   ├── subscriptions.rs    # D-Bus signal subscriptions
 │   ├── device/             # Device fetch and actions
 │   ├── sms/                # SMS conversations, views, subscriptions

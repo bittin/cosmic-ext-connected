@@ -100,18 +100,26 @@ notify_rust::Notification::new()
 
 ## Cross-Process Deduplication
 
-COSMIC spawns multiple applet processes. KDE Connect sends 3 duplicate signals per file. Traditional in-process deduplication doesn't work.
+COSMIC spawns multiple applet processes. Each independently receives D-Bus signals, causing duplicate desktop notifications. Traditional in-process deduplication doesn't work across processes.
 
 ### Solution: File-Based Locking
 
-Uses temp file with POSIX file locking (`/tmp/cosmic-connected-file-dedup`):
+Each notification type uses a dedicated temp file with POSIX file locking:
+
+| Type | Dedup file | Key format |
+|------|-----------|------------|
+| File | `/tmp/cosmic-connected-file-dedup` | `{file_url}` |
+| SMS | `/tmp/cosmic-connected-sms-dedup` | `{thread_id}:{message_date}` |
+| Call | `/tmp/cosmic-connected-call-dedup` | `{event}:{phone_number}` |
+
+All use the same generic `should_show_notification()` function in `notifications.rs`:
 
 ```rust
-fn should_show_file_notification(file_url: &str) -> bool {
-    // Open /tmp/cosmic-connected-file-dedup
+fn should_show_notification(dedup_file: &str, key: &str) -> bool {
+    // Open dedup file
     // Acquire exclusive lock with flock(fd, LOCK_EX)
-    // Check if same file URL within 2 second window
-    // Update file with new URL and timestamp
+    // Check if same key within 2 second window
+    // Update file with new key and timestamp
     // Release lock with flock(fd, LOCK_UN)
 }
 ```
@@ -120,3 +128,4 @@ Key points:
 - Uses `libc::flock()` for atomic locking across processes
 - 2-second deduplication window
 - Static variables NOT shared between applet instances
+- Call dedup key includes event type so `callReceived` and `missedCall` for the same number are treated as distinct notifications
