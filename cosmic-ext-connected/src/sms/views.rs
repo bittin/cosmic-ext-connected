@@ -382,6 +382,7 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
     // Compose row
     let compose_input = widget::text_input(fl!("type-message"), params.sms_compose_text)
         .on_input(Message::SmsComposeInput)
+        .on_submit(|_| Message::SendSms)
         .width(Length::Fill);
 
     // Check if this is a group conversation (can't send to groups)
