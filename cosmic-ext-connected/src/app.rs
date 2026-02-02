@@ -1791,22 +1791,17 @@ impl Application for ConnectApplet {
                         }
 
                         let message_text = self.sms_compose_text.clone();
-                        let recipients = addresses.clone();
-                        let sub_id = self.current_thread_sub_id.unwrap_or(-1);
                         self.sms_sending = true;
                         tracing::info!(
-                            "Dispatching send_sms_async with {} recipients, sub_id={}",
-                            recipients.len(),
-                            sub_id
+                            "Dispatching send_sms_async for thread_id={}",
+                            thread_id
                         );
                         return cosmic::app::Task::perform(
                             send_sms_async(
                                 conn.clone(),
                                 device_id.clone(),
                                 thread_id,
-                                recipients,
                                 message_text,
-                                sub_id,
                             ),
                             cosmic::Action::App,
                         );
@@ -1826,49 +1821,27 @@ impl Application for ConnectApplet {
                         self.sms_compose_text.clear();
                         self.status_message = Some(fl!("sms-sent"));
 
-                        // Optimistic update: add the sent message to the local list immediately
+                        // Update conversation list preview so it reflects the new message
+                        // when user navigates back (real message arrives via delayed refresh)
                         if let Some(thread_id) = self.current_thread_id {
                             let now_ms = std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
                                 .map(|d| d.as_millis() as i64)
                                 .unwrap_or(0);
 
-                            // Update conversation list so it reflects the new message
-                            // when user navigates back
                             if let Some(conv) = self
                                 .conversations
                                 .iter_mut()
                                 .find(|c| c.thread_id == thread_id)
                             {
-                                conv.last_message = sent_body.clone();
+                                conv.last_message = sent_body;
                                 conv.timestamp = now_ms;
                             }
                             // Re-sort conversations by timestamp (newest first)
                             self.conversations
                                 .sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
 
-                            let sent_message = SmsMessage {
-                                body: sent_body,
-                                addresses: self
-                                    .current_thread_addresses
-                                    .clone()
-                                    .unwrap_or_default(),
-                                date: now_ms,
-                                message_type: kdeconnect_dbus::plugins::MessageType::Sent,
-                                read: true,
-                                thread_id,
-                                uid: 0, // Placeholder for optimistic message; will be replaced on sync
-                                sub_id: self.current_thread_sub_id.unwrap_or(-1),
-                            };
-
-                            self.messages.push(sent_message.clone());
-
-                            // Update cache as well
-                            if let Some(cached) = self.message_cache.get_mut(&thread_id) {
-                                cached.push(sent_message);
-                            }
-
-                            // Trigger delayed refresh to sync with server
+                            // Trigger delayed refresh to fetch the real sent message from phone
                             // (gives KDE Connect time to process the sent message)
                             return cosmic::app::Task::batch(vec![
                                 cosmic::app::Task::perform(

@@ -7,55 +7,48 @@ use tokio::sync::Mutex;
 use zbus::zvariant::{Structure, Value};
 use zbus::Connection;
 
-/// Send an SMS message using the SMS plugin's sendSms method directly.
+/// Send an SMS reply to an existing conversation using replyToConversation.
 ///
-/// This bypasses the daemon's conversation cache (which replyToConversation depends on)
-/// and sends directly to the phone. The sub_id (SIM subscription ID) is required for
-/// MMS group messages to work correctly.
-///
-/// Sends to ALL addresses in the recipients list, supporting group conversations.
+/// This uses the Conversations D-Bus interface which handles address lookup
+/// from the daemon's conversation cache based on the thread ID.
 pub async fn send_sms_async(
     conn: Arc<Mutex<Connection>>,
     device_id: String,
-    _thread_id: i64,
-    recipients: Vec<String>,
+    thread_id: i64,
     message: String,
-    sub_id: i64,
 ) -> Message {
     let conn = conn.lock().await;
-    // SMS plugin is on /sms subpath
-    let sms_path = format!("{}/devices/{}/sms", kdeconnect_dbus::BASE_PATH, device_id);
+    let device_path = format!("{}/devices/{}", kdeconnect_dbus::BASE_PATH, device_id);
 
-    // Format addresses as D-Bus structs: array of variants containing structs with single string
-    // This matches what KDE Connect's ConversationAddress serializes to
-    // NOTE: Do NOT deduplicate - MMS groups need exact address list to match the thread
-    let addresses: Vec<Value<'_>> = recipients
-        .iter()
-        .map(|addr| Value::Structure(Structure::from((addr.clone(),))))
-        .collect();
+    let conversations_proxy = match ConversationsProxy::builder(&conn)
+        .path(device_path.as_str())
+        .ok()
+        .map(|b| b.build())
+    {
+        Some(fut) => match fut.await {
+            Ok(p) => p,
+            Err(e) => {
+                return Message::SmsSendResult(Err(format!("Failed to create proxy: {}", e)));
+            }
+        },
+        None => {
+            return Message::SmsSendResult(Err("Failed to build proxy path".to_string()));
+        }
+    };
+
     let empty_attachments: Vec<Value<'_>> = vec![];
 
     tracing::info!(
-        "Sending SMS via sendSms to {} recipient(s), sub_id={}",
-        addresses.len(),
-        sub_id
+        "Sending SMS via replyToConversation for thread_id={}",
+        thread_id
     );
 
-    // Use the SMS plugin's sendSms method directly with sub_id
-    // This is what replyToConversation does internally after looking up addresses from cache
-    let result = conn
-        .call_method(
-            Some("org.kde.kdeconnect.daemon"),
-            sms_path.as_str(),
-            Some("org.kde.kdeconnect.device.sms"),
-            "sendSms",
-            &(addresses, message.as_str(), empty_attachments, sub_id),
-        )
-        .await;
-
-    match result {
-        Ok(_) => {
-            tracing::info!("SMS sent successfully via sendSms");
+    match conversations_proxy
+        .reply_to_conversation(thread_id, &message, empty_attachments)
+        .await
+    {
+        Ok(()) => {
+            tracing::info!("SMS sent successfully via replyToConversation");
             Message::SmsSendResult(Ok(message))
         }
         Err(e) => {

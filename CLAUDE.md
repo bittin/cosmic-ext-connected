@@ -54,6 +54,7 @@ cosmic-ext-connected/
 │   ├── subscriptions.rs    # D-Bus signal subscriptions
 │   ├── device/             # Device fetch and actions
 │   ├── sms/                # SMS conversations, views, subscriptions
+│   │   ├── send.rs                       # SMS sending (replyToConversation / sendWithoutConversation)
 │   │   └── conversation_subscription.rs  # Incremental conversation loading
 │   ├── media/              # Media player controls
 │   └── views/              # Shared UI components

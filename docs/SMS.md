@@ -231,14 +231,16 @@ let has_cache = same_device && !self.conversations.is_empty();
 // Clear: messages, current_thread_id, sms_compose_text
 ```
 
-**Optimistic updates:** When sending a reply, the conversation list updates immediately:
+**Send flow:** Replies use `replyToConversation` (Conversations D-Bus interface), new messages use `sendWithoutConversation`. On success, the conversation list preview updates immediately (last_message + timestamp), but no fake message is inserted into the thread. A delayed refresh (~2s) fetches the real sent message from the phone.
 
 ```rust
+// Conversation list preview updates immediately
 if let Some(conv) = self.conversations.iter_mut().find(|c| c.thread_id == thread_id) {
-    conv.last_message = sent_body.clone();
+    conv.last_message = sent_body;
     conv.timestamp = now_ms;
 }
 self.conversations.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+// Delayed refresh brings the real sent message into the thread
 ```
 
 **Message cache:** Individual threads cached in LRU cache (`message_cache: LruCache<i64, Vec<SmsMessage>>`).
