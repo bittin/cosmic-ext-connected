@@ -7,14 +7,17 @@ use tokio::sync::Mutex;
 use zbus::zvariant::{Structure, Value};
 use zbus::Connection;
 
-/// Send an SMS reply to an existing conversation using replyToConversation.
+/// Send an SMS reply to an existing conversation using sendWithoutConversation.
 ///
-/// This uses the Conversations D-Bus interface which handles address lookup
-/// from the daemon's conversation cache based on the thread ID.
+/// Uses the Conversations D-Bus interface with explicit addresses. This avoids
+/// the reliability issue with replyToConversation, which silently fails when the
+/// daemon's in-memory m_conversations cache is not populated (the cache is only
+/// filled by phone-push responses through addMessages(), not by the local-store
+/// reads that requestConversation on the Conversations interface performs).
 pub async fn send_sms_async(
     conn: Arc<Mutex<Connection>>,
     device_id: String,
-    thread_id: i64,
+    recipients: Vec<String>,
     message: String,
 ) -> Message {
     let conn = conn.lock().await;
@@ -36,19 +39,24 @@ pub async fn send_sms_async(
         }
     };
 
+    // Format addresses as D-Bus structs matching KDE Connect's ConversationAddress: (s)
+    let addresses: Vec<Value<'_>> = recipients
+        .iter()
+        .map(|addr| Value::Structure(Structure::from((addr.clone(),))))
+        .collect();
     let empty_attachments: Vec<Value<'_>> = vec![];
 
     tracing::info!(
-        "Sending SMS via replyToConversation for thread_id={}",
-        thread_id
+        "Sending SMS via sendWithoutConversation to {} recipient(s)",
+        addresses.len()
     );
 
     match conversations_proxy
-        .reply_to_conversation(thread_id, &message, empty_attachments)
+        .send_without_conversation(addresses, &message, empty_attachments)
         .await
     {
         Ok(()) => {
-            tracing::info!("SMS sent successfully via replyToConversation");
+            tracing::info!("SMS sent successfully via sendWithoutConversation");
             Message::SmsSendResult(Ok(message))
         }
         Err(e) => {

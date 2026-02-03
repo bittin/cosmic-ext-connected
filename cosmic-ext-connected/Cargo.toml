@@ -26,7 +26,6 @@ i18n-embed-fl.workspace = true
 rust-embed.workspace = true
 notify-rust.workspace = true
 libc.workspace = true
-lru.workspace = true
 
 [features]
 default = ["wayland"]

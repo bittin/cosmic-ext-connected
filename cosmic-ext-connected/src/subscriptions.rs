@@ -687,13 +687,60 @@ pub fn conversation_message_subscription(
                     // Create message stream BEFORE firing request
                     let stream = zbus::MessageStream::from(&conn);
 
-                    // NOW fire the D-Bus request - after match rules are set up
+                    // NOW fire D-Bus requests - after match rules are set up
                     // This ensures we don't miss any signals
                     let device_path = format!(
                         "{}/devices/{}",
                         kdeconnect_dbus::BASE_PATH,
                         device_id
                     );
+
+                    // Fire TWO requests:
+                    // 1. SMS plugin's requestConversation → sends network packet to phone →
+                    //    response goes through addMessages() → populates m_conversations
+                    //    (required for replyToConversation to look up addresses)
+                    // 2. Conversations interface's requestConversation → reads from local
+                    //    store via RequestConversationWorker → emits per-message signals
+                    //    (required for our subscription to receive all messages)
+                    //
+                    // The SMS plugin request primes the daemon cache; the Conversations
+                    // request provides the per-message signals for UI display.
+                    let sms_path = format!(
+                        "{}/devices/{}/sms",
+                        kdeconnect_dbus::BASE_PATH,
+                        device_id
+                    );
+
+                    // Fire SMS plugin request first (cache priming, async - phone responds later)
+                    match kdeconnect_dbus::plugins::SmsProxy::builder(&conn)
+                        .path(sms_path.as_str())
+                        .ok()
+                        .map(|b| b.build())
+                    {
+                        Some(fut) => match fut.await {
+                            Ok(sms_proxy) => {
+                                if let Err(e) = sms_proxy
+                                    .request_conversation(thread_id, 0, messages_per_page as i64)
+                                    .await
+                                {
+                                    tracing::warn!("SMS plugin request_conversation failed (non-fatal): {}", e);
+                                } else {
+                                    tracing::debug!(
+                                        "SMS plugin request_conversation fired for thread {} (cache priming)",
+                                        thread_id
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to create SMS proxy (non-fatal): {}", e);
+                            }
+                        },
+                        None => {
+                            tracing::warn!("Failed to build SMS proxy path (non-fatal)");
+                        }
+                    }
+
+                    // Fire Conversations interface request (provides per-message signals)
                     match kdeconnect_dbus::plugins::ConversationsProxy::builder(&conn)
                         .path(device_path.as_str())
                         .ok()

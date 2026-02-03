@@ -43,9 +43,7 @@ use kdeconnect_dbus::{
     normalize_phone_number, phone_suffix,
     plugins::{is_address_valid, ConversationSummary, NotificationInfo, SmsMessage},
 };
-use lru::LruCache;
 use std::collections::{HashMap, HashSet};
-use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -437,8 +435,8 @@ pub struct ConnectApplet {
     sms_compose_text: String,
     /// Whether SMS is currently being sent
     sms_sending: bool,
-    /// LRU cache of messages by thread_id for faster loading (limited to avoid unbounded growth)
-    message_cache: LruCache<i64, Vec<SmsMessage>>,
+    /// Whether the current/last SMS send was to a group conversation
+    is_group_send: bool,
 
     // Message pagination state
     /// Number of messages currently loaded for pagination offset
@@ -611,9 +609,7 @@ impl Application for ConnectApplet {
             conversations_displayed: 10,
             sms_compose_text: String::new(),
             sms_sending: false,
-            message_cache: LruCache::new(
-                NonZeroUsize::new(crate::constants::sms::MESSAGE_CACHE_MAX_CONVERSATIONS).unwrap(),
-            ),
+            is_group_send: false,
             // Message pagination state
             messages_loaded_count: 0,
             messages_has_more: true,
@@ -1067,7 +1063,6 @@ impl Application for ConnectApplet {
                         self.conversation_list_subscription_active = true; // Enable subscription
                         self.conversations.clear();
                         self.conversations_displayed = 10;
-                        self.message_cache.clear();
                         self.contacts = ContactLookup::default(); // Will be loaded async
                         tracing::info!(
                             "Opening SMS view for device: {} (subscription-based loading)",
@@ -1090,8 +1085,8 @@ impl Application for ConnectApplet {
             }
             Message::CloseSmsView => {
                 self.view_mode = ViewMode::DevicePage;
-                // Keep sms_device_id, sms_device_name, conversations, contacts, and
-                // message_cache for when user returns to SMS view
+                // Keep sms_device_id, sms_device_name, conversations, contacts
+                // for when user returns to SMS view
                 self.messages.clear();
                 self.current_thread_id = None;
                 self.current_thread_addresses = None;
@@ -1134,56 +1129,23 @@ impl Application for ConnectApplet {
 
                     // Clear known message IDs for fresh deduplication
                     self.known_message_ids.clear();
-
-                    // Check if we have in-memory cached messages
-                    let has_cache = if let Some(cached) = self.message_cache.get(&thread_id) {
-                        self.messages = cached.clone();
-                        // Populate known_message_ids from cache for deduplication
-                        for msg in &self.messages {
-                            self.known_message_ids.insert(msg.uid);
-                        }
-                        tracing::debug!(
-                            "Using in-memory cached {} messages for thread {}",
-                            cached.len(),
-                            thread_id
-                        );
-                        true
-                    } else {
-                        self.messages.clear();
-                        false
-                    };
+                    self.messages.clear();
 
                     // Set up subscription-based loading state
                     // The subscription will fire the D-Bus request after setting up match rules
                     self.conversation_load_active = true;
                     self.loading_thread_id = Some(thread_id);
 
-                    if has_cache {
-                        // Use in-memory cached messages, start background sync via subscription
-                        self.sms_loading_state = SmsLoadingState::Idle; // Show cached data immediately
-                        self.message_sync_active = true; // Show sync indicator
-                        tracing::info!(
-                            "Using cached {} messages for thread {}, starting subscription-based sync",
-                            self.messages.len(),
-                            thread_id
-                        );
-                        // Scroll to bottom for cached messages
-                        // Subscription will fire D-Bus request and handle incoming signals
-                        return scrollable::snap_to(
-                            widget::Id::new("message-thread"),
-                            scrollable::RelativeOffset::END,
-                        );
-                    } else {
-                        // No in-memory cache - do subscription-based loading
-                        self.sms_loading_state =
-                            SmsLoadingState::LoadingMessages(LoadingPhase::Connecting);
-                        self.message_sync_active = false; // No background sync, just loading
-                        tracing::info!(
-                            "Opening conversation thread: {} (subscription-based loading)",
-                            thread_id
-                        );
-                        // Subscription will fire D-Bus request and handle incoming signals
-                    }
+                    // Always load through daemon to ensure its cache is primed
+                    // (replyToConversation requires the daemon to have loaded the conversation)
+                    self.sms_loading_state =
+                        SmsLoadingState::LoadingMessages(LoadingPhase::Connecting);
+                    self.message_sync_active = false;
+                    tracing::info!(
+                        "Opening conversation thread: {} (subscription-based loading)",
+                        thread_id
+                    );
+                    // Subscription will fire D-Bus request and handle incoming signals
                 }
             }
             Message::CloseConversation => {
@@ -1422,8 +1384,6 @@ impl Application for ConnectApplet {
                             }
                         }
 
-                        // Update cache
-                        self.message_cache.put(thread_id, msgs.clone());
                         // Update pagination state
                         self.messages_loaded_count = msgs.len() as u32;
                         // Use total_count for accurate pagination if available,
@@ -1480,9 +1440,6 @@ impl Application for ConnectApplet {
 
                         // Update loaded count
                         self.messages_loaded_count = self.messages.len() as u32;
-
-                        // Update cache with combined messages
-                        self.message_cache.put(thread_id, self.messages.clone());
 
                         // Use total_count for accurate pagination if available,
                         // otherwise fall back to heuristic
@@ -1726,9 +1683,6 @@ impl Application for ConnectApplet {
                     }
                 }
 
-                // Update cache
-                self.message_cache.put(thread_id, self.messages.clone());
-
                 // Clear sync indicator and loading state
                 self.message_sync_active = false;
                 self.conversation_load_active = false;
@@ -1764,7 +1718,7 @@ impl Application for ConnectApplet {
                     self.sms_compose_text.is_empty(),
                     self.sms_sending
                 );
-                if let (Some(conn), Some(device_id), Some(thread_id), Some(addresses)) = (
+                if let (Some(conn), Some(device_id), Some(_thread_id), Some(addresses)) = (
                     &self.dbus_connection,
                     &self.sms_device_id,
                     self.current_thread_id,
@@ -1774,33 +1728,29 @@ impl Application for ConnectApplet {
                         && !self.sms_sending
                         && !addresses.is_empty()
                     {
-                        // Check if this is a group conversation (multiple unique recipients)
-                        let mut unique_addresses = std::collections::HashSet::new();
-                        for addr in addresses {
-                            unique_addresses.insert(addr.as_str());
-                        }
-
-                        if unique_addresses.len() > 1 {
-                            // Group MMS sending is not supported by KDE Connect
-                            tracing::warn!(
-                                "Group MMS sending not supported ({} recipients)",
-                                unique_addresses.len()
-                            );
-                            self.status_message = Some(fl!("group-sms-not-supported"));
-                            return cosmic::app::Task::none();
-                        }
+                        // Track whether this is a group conversation for error reporting
+                        let unique_addresses: std::collections::HashSet<&str> =
+                            addresses.iter().map(|s| s.as_str()).collect();
+                        self.is_group_send = unique_addresses.len() > 1;
+                        tracing::info!(
+                            "Group send check: {} addresses, {} unique, is_group={}",
+                            addresses.len(),
+                            unique_addresses.len(),
+                            self.is_group_send
+                        );
 
                         let message_text = self.sms_compose_text.clone();
+                        let recipients = addresses.clone();
                         self.sms_sending = true;
                         tracing::info!(
-                            "Dispatching send_sms_async for thread_id={}",
-                            thread_id
+                            "Dispatching send_sms_async to {} recipient(s)",
+                            recipients.len()
                         );
                         return cosmic::app::Task::perform(
                             send_sms_async(
                                 conn.clone(),
                                 device_id.clone(),
-                                thread_id,
+                                recipients,
                                 message_text,
                             ),
                             cosmic::Action::App,
@@ -1815,11 +1765,17 @@ impl Application for ConnectApplet {
             }
             Message::SmsSendResult(result) => {
                 self.sms_sending = false;
+                let was_group = self.is_group_send;
+                self.is_group_send = false;
                 match result {
                     Ok(sent_body) => {
                         tracing::info!("SMS sent successfully");
                         self.sms_compose_text.clear();
-                        self.status_message = Some(fl!("sms-sent"));
+                        if was_group {
+                            self.status_message = Some(fl!("group-sms-warning"));
+                        } else {
+                            self.status_message = Some(fl!("sms-sent"));
+                        }
 
                         // Update conversation list preview so it reflects the new message
                         // when user navigates back (real message arrives via delayed refresh)
@@ -1863,7 +1819,13 @@ impl Application for ConnectApplet {
                     }
                     Err(err) => {
                         tracing::error!("SMS send error: {}", err);
-                        self.status_message = Some(format!("{}: {}", fl!("sms-failed"), err));
+                        if was_group {
+                            self.status_message =
+                                Some(format!("{}: {}", fl!("group-sms-send-failed"), err));
+                        } else {
+                            self.status_message =
+                                Some(format!("{}: {}", fl!("sms-failed"), err));
+                        }
                     }
                 }
             }
@@ -2394,6 +2356,7 @@ impl Application for ConnectApplet {
                 sync_active: self.message_sync_active,
                 pressed_bubble_uid: self.pressed_bubble_uid,
                 show_copy_hint: self.show_copy_hint,
+                status_message: self.status_message.as_deref(),
             }),
             ViewMode::NewMessage => view_new_message(NewMessageParams {
                 recipient: &self.new_message_recipient,

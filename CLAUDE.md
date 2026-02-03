@@ -54,7 +54,7 @@ cosmic-ext-connected/
 │   ├── subscriptions.rs    # D-Bus signal subscriptions
 │   ├── device/             # Device fetch and actions
 │   ├── sms/                # SMS conversations, views, subscriptions
-│   │   ├── send.rs                       # SMS sending (replyToConversation / sendWithoutConversation)
+│   │   ├── send.rs                       # SMS sending (sendWithoutConversation for both replies and new messages)
 │   │   └── conversation_subscription.rs  # Incremental conversation loading
 │   ├── media/              # Media player controls
 │   └── views/              # Shared UI components
@@ -109,6 +109,21 @@ For implementation details, see docs/:
 - **[docs/MEDIA.md](docs/MEDIA.md)** - Media player controls, sendAction pattern
 - **[docs/UI_PATTERNS.md](docs/UI_PATTERNS.md)** - libcosmic patterns, ViewMode, popups
 - **[docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)** - Known issues and workarounds
+
+## D-Bus Interface Pitfalls
+
+### Two `requestConversation` methods (different behavior)
+The daemon exposes `requestConversation` on two interfaces with **different behavior**:
+
+- **`org.kde.kdeconnect.device.sms`** (at `/devices/{id}/sms`): Sends a network packet to the phone. The response flows through `addMessages()` which populates the daemon's in-memory `m_conversations` cache. Use this to prime the cache.
+- **`org.kde.kdeconnect.device.conversations`** (at `/devices/{id}`): Creates a `RequestConversationWorker` that reads from a local persistent store and emits `conversationUpdated` D-Bus signals, but does **NOT** populate `m_conversations`.
+
+We fire both: SMS plugin first (cache priming), then Conversations interface (per-message signals for UI).
+
+### `replyToConversation` is unreliable — use `sendWithoutConversation`
+`replyToConversation(threadId, message, attachments)` looks up addresses from `m_conversations[threadId]`. If the cache is empty, it **silently returns without sending** (no D-Bus error). Since `m_conversations` is only populated by phone-push responses through `addMessages()` (not by the Conversations interface's local-store reads), the cache is often empty.
+
+`sendWithoutConversation(addresses, message, attachments)` takes explicit addresses and sends reliably. Both methods are on the same Conversations D-Bus interface. The trade-off is that `sendWithoutConversation` doesn't pass sub_id (SIM selection), so the phone uses its default SIM.
 
 ## External Resources
 

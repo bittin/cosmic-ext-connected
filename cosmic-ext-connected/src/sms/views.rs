@@ -217,6 +217,8 @@ pub struct MessageThreadParams<'a> {
     pub pressed_bubble_uid: Option<i32>,
     /// Whether to show the "Hold to copy" hint (500ms elapsed)
     pub show_copy_hint: bool,
+    /// Status message to display (e.g. send confirmation or error)
+    pub status_message: Option<&'a str>,
 }
 
 /// Render the SMS message thread view.
@@ -385,24 +387,7 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
         .on_submit(|_| Message::SendSms)
         .width(Length::Fill);
 
-    // Check if this is a group conversation (can't send to groups)
-    let unique_addresses: std::collections::HashSet<&str> = params
-        .thread_addresses
-        .map(|addrs| addrs.iter().map(|s| s.as_str()).collect())
-        .unwrap_or_default();
-    let is_group = unique_addresses.len() > 1;
-
-    let send_btn: Element<Message> = if is_group {
-        // Show disabled indicator for group conversations
-        widget::container(
-            text(fl!("group-sms-not-supported"))
-                .size(11)
-                .wrapping(text::Wrapping::Word),
-        )
-        .padding([4, 8])
-        .width(Length::Fill)
-        .into()
-    } else if params.sms_sending {
+    let send_btn: Element<Message> = if params.sms_sending {
         widget::button::standard(fl!("sending"))
             .leading_icon(widget::icon::from_name("process-working-symbolic").size(16))
             .into()
@@ -418,19 +403,14 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
             .into()
     };
 
-    let compose_row = if is_group {
-        widget::container(column![row![compose_input].width(Length::Fill), send_btn,].spacing(8))
-            .padding([8, 12])
-    } else {
-        widget::container(
-            row![compose_input, send_btn,]
-                .spacing(8)
-                .align_y(Alignment::Center),
-        )
-        .padding([8, 12])
-    };
+    let compose_row = widget::container(
+        row![compose_input, send_btn,]
+            .spacing(8)
+            .align_y(Alignment::Center),
+    )
+    .padding([8, 12]);
 
-    column![
+    let mut thread_column = column![
         header,
         widget::divider::horizontal::default(),
         content,
@@ -438,8 +418,18 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
         compose_row,
     ]
     .spacing(4)
-    .width(Length::Fill)
-    .into()
+    .width(Length::Fill);
+
+    if let Some(msg) = params.status_message {
+        thread_column = thread_column.push(
+            widget::container(text(msg).size(11).wrapping(text::Wrapping::Word))
+                .padding([4, 12])
+                .width(Length::Fill)
+                .class(cosmic::theme::Container::Card),
+        );
+    }
+
+    thread_column.into()
 }
 
 /// Parameters for the new message view.

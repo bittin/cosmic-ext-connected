@@ -92,13 +92,18 @@ OpenConversation → Set state, activate subscription
 5. `ConversationLoadComplete` finalizes state when `conversationLoaded` signal arrives
 
 ```rust
-// In subscriptions.rs - subscription fires request after setup
+// In subscriptions.rs - subscription fires requests after setup
 let stream = zbus::MessageStream::from(&conn);
 
-// NOW fire request - after match rules are ready
+// Fire TWO requests after match rules are ready:
+// 1. SMS plugin (cache priming): sends network packet to phone → response flows
+//    through addMessages() → populates m_conversations (required for replyToConversation)
+sms_proxy.request_conversation(thread_id, 0, count).await?;
+// 2. Conversations interface (UI signals): reads from local store via worker →
+//    emits per-message conversationUpdated signals for our subscription
 conversations_proxy.request_conversation(thread_id, 0, count).await?;
 
-// Listen for signals...
+// Listen for conversationUpdated/conversationLoaded signals...
 ```
 
 ```rust
@@ -227,11 +232,13 @@ let same_device = self.sms_device_id.as_ref() == Some(&device_id);
 let has_cache = same_device && !self.conversations.is_empty();
 
 // CloseSmsView preserves cache
-// Keep: sms_device_id, conversations, contacts, message_cache
+// Keep: sms_device_id, conversations, contacts
 // Clear: messages, current_thread_id, sms_compose_text
 ```
 
-**Send flow:** Replies use `replyToConversation` (Conversations D-Bus interface), new messages use `sendWithoutConversation`. On success, the conversation list preview updates immediately (last_message + timestamp), but no fake message is inserted into the thread. A delayed refresh (~2s) fetches the real sent message from the phone.
+**Send flow:** Both replies and new messages use `sendWithoutConversation` (Conversations D-Bus interface) with explicit addresses. This avoids `replyToConversation` which silently fails when the daemon's in-memory `m_conversations` cache is not populated (see Cache Priming below). On success, the conversation list preview updates immediately (last_message + timestamp), but no fake message is inserted into the thread. A delayed refresh (~2s) fetches the real sent message from the phone.
+
+**Cache priming:** When loading a conversation, two `requestConversation` calls are fired in sequence: (1) the SMS plugin's version (on `/devices/{id}/sms`) sends a network packet to the phone — the response flows through `addMessages()` which populates the daemon's in-memory `m_conversations` cache; (2) the Conversations interface's version reads from a local persistent store and emits per-message `conversationUpdated` signals for the UI. Both are needed because `replyToConversation` looks up addresses from `m_conversations` (only populated by the SMS plugin path), while the UI needs per-message signals (only provided by the Conversations interface path).
 
 ```rust
 // Conversation list preview updates immediately
@@ -242,8 +249,6 @@ if let Some(conv) = self.conversations.iter_mut().find(|c| c.thread_id == thread
 self.conversations.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
 // Delayed refresh brings the real sent message into the thread
 ```
-
-**Message cache:** Individual threads cached in LRU cache (`message_cache: LruCache<i64, Vec<SmsMessage>>`).
 
 ## Contact Name Resolution
 
