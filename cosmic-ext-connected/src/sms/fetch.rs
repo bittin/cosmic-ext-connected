@@ -20,7 +20,7 @@ use crate::constants::sms::{
 use futures_util::StreamExt;
 use kdeconnect_dbus::plugins::{
     parse_conversations, parse_messages, parse_sms_message, ConversationSummary,
-    ConversationsProxy, SmsMessage, MAX_CONVERSATIONS,
+    ConversationsProxy, SmsMessage, SmsProxy, MAX_CONVERSATIONS,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -395,7 +395,7 @@ pub async fn fetch_messages_async(
     // The conversations interface is on the device path
     let device_path = format!("{}/devices/{}", kdeconnect_dbus::BASE_PATH, device_id);
 
-    // Build conversations proxy on the device path
+    // Build conversations proxy on the device path (for signal listening)
     let conversations_proxy = match ConversationsProxy::builder(&conn)
         .path(device_path.as_str())
         .ok()
@@ -412,13 +412,31 @@ pub async fn fetch_messages_async(
         }
     };
 
+    // Build SMS proxy for the request (populates daemon's m_conversations cache)
+    let sms_path = format!("{}/devices/{}/sms", kdeconnect_dbus::BASE_PATH, device_id);
+    let sms_proxy = match SmsProxy::builder(&conn)
+        .path(sms_path.as_str())
+        .ok()
+        .map(|b| b.build())
+    {
+        Some(fut) => match fut.await {
+            Ok(p) => p,
+            Err(e) => {
+                return Message::SmsError(format!("Failed to create SMS proxy: {}", e));
+            }
+        },
+        None => {
+            return Message::SmsError("Failed to build SMS proxy path".to_string());
+        }
+    };
+
     // Set up signal stream for conversationUpdated BEFORE requesting
     let mut updated_stream = match conversations_proxy.receive_conversation_updated().await {
         Ok(stream) => stream,
         Err(e) => {
             tracing::warn!("Failed to subscribe to conversationUpdated: {}", e);
             // Fallback to simple polling
-            return fetch_messages_fallback(&conversations_proxy, thread_id, messages_per_page)
+            return fetch_messages_fallback(&conversations_proxy, &sms_proxy, thread_id, messages_per_page)
                 .await;
         }
     };
@@ -428,12 +446,25 @@ pub async fn fetch_messages_async(
         Ok(stream) => stream,
         Err(e) => {
             tracing::warn!("Failed to subscribe to conversationLoaded: {}", e);
-            return fetch_messages_fallback(&conversations_proxy, thread_id, messages_per_page)
+            return fetch_messages_fallback(&conversations_proxy, &sms_proxy, thread_id, messages_per_page)
                 .await;
         }
     };
 
-    // Request the specific conversation
+    // Fire SMS plugin request first (primes daemon's m_conversations cache for replyToConversation)
+    if let Err(e) = sms_proxy
+        .request_conversation(thread_id, 0, messages_per_page as i64)
+        .await
+    {
+        tracing::warn!("SMS plugin request_conversation failed (non-fatal): {}", e);
+    } else {
+        tracing::debug!(
+            "SMS plugin request_conversation fired for thread {} (cache priming)",
+            thread_id
+        );
+    }
+
+    // Fire Conversations interface request (provides per-message signals for UI)
     tracing::debug!(
         "Requesting conversation {} (messages 0-{})",
         thread_id,
@@ -560,10 +591,18 @@ pub async fn fetch_messages_async(
 /// Fallback message fetching using simple polling when signal subscription fails.
 async fn fetch_messages_fallback(
     conversations_proxy: &ConversationsProxy<'_>,
+    sms_proxy: &SmsProxy<'_>,
     thread_id: i64,
     messages_per_page: u32,
 ) -> Message {
-    // Request the conversation
+    // Fire SMS plugin request (primes daemon cache for replyToConversation)
+    if let Err(e) = sms_proxy
+        .request_conversation(thread_id, 0, messages_per_page as i64)
+        .await
+    {
+        tracing::warn!("SMS plugin request_conversation failed (non-fatal): {}", e);
+    }
+    // Fire Conversations interface request (provides data for polling)
     if let Err(e) = conversations_proxy
         .request_conversation(thread_id, 0, messages_per_page as i32)
         .await
