@@ -143,6 +143,22 @@ impl ContactLookup {
             .unwrap_or_else(|| phone_number.to_string())
     }
 
+    /// Build a display name for a group of addresses.
+    /// Resolves each address via `get_name_or_number`, joins the first `limit` with ", ",
+    /// and appends ", ..." if there are more addresses than the limit.
+    pub fn get_group_display_name(&self, addresses: &[String], limit: usize) -> String {
+        let names: Vec<String> = addresses
+            .iter()
+            .take(limit)
+            .map(|addr| self.get_name_or_number(addr))
+            .collect();
+        let mut result = names.join(", ");
+        if addresses.len() > limit {
+            result.push_str(", ...");
+        }
+        result
+    }
+
     /// Returns the number of contacts loaded.
     pub fn len(&self) -> usize {
         self.phone_to_name.len()
@@ -307,5 +323,73 @@ mod tests {
 
         // Should match formatted differently
         assert_eq!(lookup.get_name("(555) 123-4567"), Some("John Doe"));
+    }
+
+    fn lookup_with_contacts() -> ContactLookup {
+        let mut lookup = ContactLookup::new();
+        lookup
+            .phone_to_name
+            .insert("15551234567".to_string(), "Alice".to_string());
+        lookup
+            .suffix_to_name
+            .insert("5551234567".to_string(), "Alice".to_string());
+        lookup
+            .phone_to_name
+            .insert("15559876543".to_string(), "Bob".to_string());
+        lookup
+            .suffix_to_name
+            .insert("5559876543".to_string(), "Bob".to_string());
+        lookup
+    }
+
+    #[test]
+    fn test_group_display_name_empty() {
+        let lookup = lookup_with_contacts();
+        assert_eq!(lookup.get_group_display_name(&[], 3), "");
+    }
+
+    #[test]
+    fn test_group_display_name_single() {
+        let lookup = lookup_with_contacts();
+        let addrs = vec!["+1-555-123-4567".to_string()];
+        assert_eq!(lookup.get_group_display_name(&addrs, 3), "Alice");
+    }
+
+    #[test]
+    fn test_group_display_name_exactly_limit() {
+        let lookup = lookup_with_contacts();
+        let addrs = vec![
+            "+1-555-123-4567".to_string(),
+            "+1-555-987-6543".to_string(),
+        ];
+        assert_eq!(lookup.get_group_display_name(&addrs, 2), "Alice, Bob");
+    }
+
+    #[test]
+    fn test_group_display_name_exceeds_limit() {
+        let lookup = lookup_with_contacts();
+        let addrs = vec![
+            "+1-555-123-4567".to_string(),
+            "+1-555-987-6543".to_string(),
+            "+1-555-000-1111".to_string(),
+        ];
+        assert_eq!(
+            lookup.get_group_display_name(&addrs, 2),
+            "Alice, Bob, ..."
+        );
+    }
+
+    #[test]
+    fn test_group_display_name_unknown_numbers() {
+        let lookup = lookup_with_contacts();
+        let addrs = vec![
+            "+1-555-123-4567".to_string(),
+            "+1-444-000-0000".to_string(),
+        ];
+        // Alice is known, second number falls back to raw number
+        assert_eq!(
+            lookup.get_group_display_name(&addrs, 3),
+            "Alice, +1-444-000-0000"
+        );
     }
 }
