@@ -125,7 +125,7 @@ pub fn view_conversation_list(params: ConversationListParams<'_>) -> Element<'_,
             .iter()
             .take(params.conversations_displayed)
         {
-            let display_name = params.contacts.get_name_or_number(conv.primary_address());
+            let display_name = params.contacts.get_group_display_name(&conv.addresses, 3);
 
             let snippet = conv.last_message.chars().take(50).collect::<String>();
             let date_str = format_timestamp(conv.timestamp);
@@ -223,13 +223,10 @@ pub struct MessageThreadParams<'a> {
 
 /// Render the SMS message thread view.
 pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Message> {
-    let default_unknown = fl!("unknown");
-    let address = params
-        .thread_addresses
-        .and_then(|addrs| addrs.first())
-        .map(|s| s.as_str())
-        .unwrap_or(&default_unknown);
-    let display_name = params.contacts.get_name_or_number(address);
+    let display_name = match params.thread_addresses {
+        Some(addrs) => params.contacts.get_group_display_name(addrs, 3),
+        None => fl!("unknown"),
+    };
 
     // Build header with optional sync indicator
     let mut header_row = row![

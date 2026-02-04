@@ -1043,6 +1043,28 @@ impl Application for ConnectApplet {
                     self.sms_device_id = Some(device_id.clone());
                     self.sms_device_name = device_name;
 
+                    // Clear contacts if switching to a different device
+                    if !same_device {
+                        self.contacts = ContactLookup::default();
+                    }
+
+                    // Load contacts if not already loaded for this device
+                    let needs_contacts = self.contacts.is_empty();
+                    let contacts_task = if needs_contacts {
+                        let device_id_for_contacts = device_id.clone();
+                        cosmic::app::Task::perform(
+                            async move {
+                                let contacts =
+                                    ContactLookup::load_for_device(&device_id_for_contacts)
+                                        .await;
+                                Message::ContactsLoaded(device_id_for_contacts, contacts)
+                            },
+                            cosmic::Action::App,
+                        )
+                    } else {
+                        cosmic::app::Task::none()
+                    };
+
                     if has_cache {
                         // Use in-memory cached conversations, enable subscription for background refresh
                         self.sms_loading_state = SmsLoadingState::Idle; // Show cached data immediately
@@ -1054,6 +1076,7 @@ impl Application for ConnectApplet {
                             device_id
                         );
                         // Subscription will handle background sync
+                        return contacts_task;
                     } else {
                         // No cache or different device - subscription-based loading
                         // Conversations will arrive incrementally via signals
@@ -1063,23 +1086,13 @@ impl Application for ConnectApplet {
                         self.conversation_list_subscription_active = true; // Enable subscription
                         self.conversations.clear();
                         self.conversations_displayed = 10;
-                        self.contacts = ContactLookup::default(); // Will be loaded async
                         tracing::info!(
                             "Opening SMS view for device: {} (subscription-based loading)",
                             device_id
                         );
 
                         // Load contacts in parallel - subscription handles conversation loading
-                        let device_id_for_contacts = device_id.clone();
-                        return cosmic::app::Task::perform(
-                            async move {
-                                let contacts =
-                                    ContactLookup::load_for_device(&device_id_for_contacts)
-                                        .await;
-                                Message::ContactsLoaded(device_id_for_contacts, contacts)
-                            },
-                            cosmic::Action::App,
-                        );
+                        return contacts_task;
                     }
                 }
             }
@@ -2121,14 +2134,14 @@ impl Application for ConnectApplet {
                 let show_sender = self.config.sms_notification_show_sender;
                 let show_content = self.config.sms_notification_show_content;
                 let message_body = message.body.clone();
-                let primary_address = message.primary_address().to_string();
+                let addresses = message.addresses.clone();
 
                 // Show notification asynchronously (loads contacts without blocking UI)
                 return cosmic::app::Task::perform(
                     async move {
                         // Load contacts asynchronously to resolve sender name
                         let contacts = ContactLookup::load_for_device(&device_id).await;
-                        let sender_name = contacts.get_name_or_number(&primary_address);
+                        let sender_name = contacts.get_group_display_name(&addresses, 3);
 
                         // Build notification based on privacy settings
                         let summary = if show_sender {
