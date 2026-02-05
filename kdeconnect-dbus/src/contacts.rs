@@ -146,14 +146,18 @@ impl ContactLookup {
     /// Build a display name for a group of addresses.
     /// Resolves each address via `get_name_or_number`, joins the first `limit` with ", ",
     /// and appends ", ..." if there are more addresses than the limit.
+    /// Deduplicates resolved names to avoid showing the same contact twice.
     pub fn get_group_display_name(&self, addresses: &[String], limit: usize) -> String {
-        let names: Vec<String> = addresses
+        let mut seen = std::collections::HashSet::new();
+        // Collect all unique names first, then take limit
+        let unique_names: Vec<String> = addresses
             .iter()
-            .take(limit)
             .map(|addr| self.get_name_or_number(addr))
+            .filter(|name| seen.insert(name.clone()))
             .collect();
-        let mut result = names.join(", ");
-        if addresses.len() > limit {
+        let display_names: Vec<_> = unique_names.iter().take(limit).cloned().collect();
+        let mut result = display_names.join(", ");
+        if unique_names.len() > limit {
             result.push_str(", ...");
         }
         result
@@ -391,5 +395,16 @@ mod tests {
             lookup.get_group_display_name(&addrs, 3),
             "Alice, +1-444-000-0000"
         );
+    }
+
+    #[test]
+    fn test_group_display_name_deduplicates() {
+        let lookup = lookup_with_contacts();
+        // Same number in different formats - should resolve to same name and deduplicate
+        let addrs = vec![
+            "+1-555-123-4567".to_string(),
+            "555-123-4567".to_string(), // Same number, different format
+        ];
+        assert_eq!(lookup.get_group_display_name(&addrs, 3), "Alice");
     }
 }

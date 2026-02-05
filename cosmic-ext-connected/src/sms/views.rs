@@ -350,17 +350,30 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
                 bubble_with_press.into()
             };
 
-            // Received messages: show sender name above and align left
+            // Received messages: align left, show sender name only in group chats
             // Sent messages: align right
+            // Note: thread_addresses may contain duplicates or both user + recipient,
+            // so we deduplicate and use a threshold of >1 unique addresses for "group"
+            let is_group = params.thread_addresses.is_some_and(|addrs| {
+                let unique: std::collections::HashSet<_> = addrs.iter().collect();
+                unique.len() > 1
+            });
             let msg_row: Element<Message> = if is_received {
-                let sender_name = params.contacts.get_name_or_number(msg.primary_address());
-                column![
-                    text(sender_name).size(11),
-                    row![bubble_element, widget::horizontal_space(),].width(Length::Fill),
-                ]
-                .spacing(4)
-                .width(Length::Fill)
-                .into()
+                if is_group {
+                    let sender_name =
+                        params.contacts.get_name_or_number(msg.primary_address());
+                    column![
+                        text(sender_name).size(11),
+                        row![bubble_element, widget::horizontal_space(),].width(Length::Fill),
+                    ]
+                    .spacing(4)
+                    .width(Length::Fill)
+                    .into()
+                } else {
+                    row![bubble_element, widget::horizontal_space(),]
+                        .width(Length::Fill)
+                        .into()
+                }
             } else {
                 row![widget::horizontal_space(), bubble_element,]
                     .width(Length::Fill)
