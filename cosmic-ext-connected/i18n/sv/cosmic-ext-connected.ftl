@@ -112,8 +112,8 @@ incoming-call-from = Inkommande samtal från { $name }
 missed-call = Missat samtal
 missed-call-from = Missat samtal från { $name }
 
-# Inställningar för Fil aviseringar
-settings-file-notifications = Fil aviseringar
+# Inställningar för filaviseringar
+settings-file-notifications = Filaviseringar
 settings-file-notifications-desc = Visa aviseringar när filer tas emot
 
 # Filmeddelandetext
