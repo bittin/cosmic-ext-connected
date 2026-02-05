@@ -28,7 +28,7 @@ not-paired = inte parade
 connected = Ansluten
 online = Online
 offline = Offline
-available = Available
+available = Tillgänglig
 discovered = Upptäckt
 battery = Batteri
 battery-level = { $level }%
@@ -112,9 +112,9 @@ incoming-call-from = Inkommande samtal från { $name }
 missed-call = Missat samtal
 missed-call-from = Missat samtal från { $name }
 
-# File Notifications settings
-settings-file-notifications = File notifications
-settings-file-notifications-desc = Show notification when files are received
+# Inställningar för Fil aviseringar
+settings-file-notifications = Fil aviseringar
+settings-file-notifications-desc = Visa aviseringar när filer tas emot
 
 # Filmeddelandetext
 file-received = Fil mottagen
