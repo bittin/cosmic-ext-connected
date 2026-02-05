@@ -116,6 +116,11 @@ missed-call-from = Missed call from { $name }
 settings-file-notifications = File notifications
 settings-file-notifications-desc = Show notification when files are received
 
+# Notification timeout settings
+settings-notification-timeout = Notification duration
+settings-notification-timeout-desc = How long notifications stay on screen
+notification-timeout-seconds = { $seconds }s
+
 # File Notification text
 file-received = File Received
 file-received-from = File received from { $device }

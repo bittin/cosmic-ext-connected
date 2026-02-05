@@ -56,6 +56,10 @@ pub mod refresh {
 
 /// Notification display constants.
 pub mod notifications {
-    /// Timeout for file received notifications (milliseconds).
-    pub const FILE_TIMEOUT_MS: u32 = 5000;
+    /// Default notification timeout (seconds).
+    pub const DEFAULT_TIMEOUT_SECS: u32 = 5;
+    /// Minimum notification timeout slider value (seconds).
+    pub const MIN_TIMEOUT_SECS: u32 = 1;
+    /// Maximum notification timeout slider value (seconds).
+    pub const MAX_TIMEOUT_SECS: u32 = 30;
 }

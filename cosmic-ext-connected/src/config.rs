@@ -8,7 +8,7 @@ pub const APP_ID: &str = "io.github.nwxnw.connected";
 
 /// Applet configuration stored in COSMIC's config system.
 #[derive(Debug, Clone, Serialize, Deserialize, CosmicConfigEntry, PartialEq, Eq)]
-#[version = 6]
+#[version = 7]
 pub struct Config {
     /// Show battery percentage in device list
     pub show_battery_percentage: bool,
@@ -32,6 +32,8 @@ pub struct Config {
     pub call_notification_show_name: bool,
     /// Enable desktop notifications for received files
     pub file_notifications: bool,
+    /// How long notifications stay on screen (seconds)
+    pub notification_timeout_secs: u32,
 }
 
 impl Default for Config {
@@ -48,6 +50,7 @@ impl Default for Config {
             call_notification_show_number: true,
             call_notification_show_name: true,
             file_notifications: true,
+            notification_timeout_secs: crate::constants::notifications::DEFAULT_TIMEOUT_SECS,
         }
     }
 }

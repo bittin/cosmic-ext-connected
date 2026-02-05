@@ -2,6 +2,7 @@
 
 use crate::app::{Message, SettingKey};
 use crate::config::Config;
+use crate::constants::notifications::{MAX_TIMEOUT_SECS, MIN_TIMEOUT_SECS};
 use crate::fl;
 use cosmic::iced::widget::{column, row, text};
 use cosmic::iced::{Alignment, Length};
@@ -101,7 +102,55 @@ pub fn view_settings(config: &Config) -> Element<'_, Message> {
             SettingKey::FileNotifications,
         ));
 
+    // Notification timeout slider
+    settings_col = settings_col
+        .push(widget::divider::horizontal::default())
+        .push(view_setting_slider(
+            fl!("settings-notification-timeout"),
+            fl!("settings-notification-timeout-desc"),
+            config.notification_timeout_secs,
+            MIN_TIMEOUT_SECS..=MAX_TIMEOUT_SECS,
+            Message::SetNotificationTimeout,
+        ));
+
     widget::container(settings_col).width(Length::Fill).into()
+}
+
+/// Render a setting row with a slider control.
+fn view_setting_slider(
+    title: String,
+    description: String,
+    value: u32,
+    range: std::ops::RangeInclusive<u32>,
+    on_change: fn(u32) -> Message,
+) -> Element<'static, Message> {
+    let label = fl!("notification-timeout-seconds", seconds = value.to_string());
+
+    let slider = widget::slider(range, value, on_change);
+
+    let text_col = column![
+        text(title).size(14),
+        text(description).size(11).wrapping(text::Wrapping::Word),
+    ]
+    .spacing(2)
+    .width(Length::Fill);
+
+    let slider_row = row![
+        slider,
+        text(label).size(12).width(Length::Fixed(36.0)),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center)
+    .width(Length::Fixed(160.0));
+
+    let setting_row = row![text_col, slider_row]
+        .spacing(12)
+        .align_y(Alignment::Center);
+
+    widget::container(setting_row)
+        .padding(12)
+        .width(Length::Fill)
+        .into()
 }
 
 /// Render a single setting toggle row.

@@ -2,7 +2,9 @@
 
 use crate::config::Config;
 use crate::constants::{
-    dbus::SIGNAL_REFRESH_DEBOUNCE_SECS, notifications::FILE_TIMEOUT_MS, refresh,
+    dbus::SIGNAL_REFRESH_DEBOUNCE_SECS,
+    notifications::{MAX_TIMEOUT_SECS, MIN_TIMEOUT_SECS},
+    refresh,
 };
 use crate::device::{
     accept_pairing_async, dismiss_notification_async, fetch_devices_async, find_my_phone_async,
@@ -135,6 +137,8 @@ pub enum Message {
     ToggleSettings,
     /// Toggle a specific setting
     ToggleSetting(SettingKey),
+    /// Set the notification timeout duration (seconds)
+    SetNotificationTimeout(u32),
 
     // SMS
     /// Open SMS view for a device
@@ -1020,6 +1024,14 @@ impl Application for ConnectApplet {
                 }
                 tracing::debug!("Settings updated: {:?}", self.config);
                 // Save config to disk
+                if let Err(err) = self.config.save() {
+                    tracing::error!(?err, "Failed to save config");
+                }
+            }
+            Message::SetNotificationTimeout(secs) => {
+                self.config.notification_timeout_secs =
+                    secs.clamp(MIN_TIMEOUT_SECS, MAX_TIMEOUT_SECS);
+                tracing::debug!("Settings updated: {:?}", self.config);
                 if let Err(err) = self.config.save() {
                     tracing::error!(?err, "Failed to save config");
                 }
@@ -2133,6 +2145,7 @@ impl Application for ConnectApplet {
                 // Capture config settings for the async block
                 let show_sender = self.config.sms_notification_show_sender;
                 let show_content = self.config.sms_notification_show_content;
+                let timeout_ms = self.config.notification_timeout_secs * 1000;
                 let message_body = message.body.clone();
                 let addresses = message.addresses.clone();
 
@@ -2164,6 +2177,7 @@ impl Application for ConnectApplet {
                                 .body(&body)
                                 .icon("phone-symbolic")
                                 .appname("Connected")
+                                .timeout(notify_rust::Timeout::Milliseconds(timeout_ms))
                                 .show()
                         })
                         .await;
@@ -2224,6 +2238,8 @@ impl Application for ConnectApplet {
                     device_name
                 );
 
+                let timeout_ms = self.config.notification_timeout_secs * 1000;
+
                 // Show notification
                 return cosmic::app::Task::perform(
                     async move {
@@ -2236,6 +2252,7 @@ impl Application for ConnectApplet {
                                 .icon(icon)
                                 .appname("Connected")
                                 .urgency(urgency)
+                                .timeout(notify_rust::Timeout::Milliseconds(timeout_ms))
                                 .show()
                         })
                         .await;
@@ -2272,6 +2289,7 @@ impl Application for ConnectApplet {
                 if self.config.file_notifications {
                     let summary = fl!("file-received-from", device = device_name.clone());
                     let file_name_clone = file_name.clone();
+                    let timeout_ms = self.config.notification_timeout_secs * 1000;
 
                     return cosmic::app::Task::perform(
                         async move {
@@ -2282,7 +2300,7 @@ impl Application for ConnectApplet {
                                     .body(&file_name_clone)
                                     .icon("folder-download-symbolic")
                                     .appname("Connected")
-                                    .timeout(notify_rust::Timeout::Milliseconds(FILE_TIMEOUT_MS))
+                                    .timeout(notify_rust::Timeout::Milliseconds(timeout_ms))
                                     .show()
                             })
                             .await;

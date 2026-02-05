@@ -116,6 +116,11 @@ missed-call-from = Missat samtal från { $name }
 settings-file-notifications = Filaviseringar
 settings-file-notifications-desc = Visa aviseringar när filer tas emot
 
+# Inställningar för aviseringslängd
+settings-notification-timeout = Aviseringslängd
+settings-notification-timeout-desc = Hur länge aviseringar visas på skärmen
+notification-timeout-seconds = { $seconds }s
+
 # Filmeddelandetext
 file-received = Fil mottagen
 file-received-from = Fil mottagen från { $device }
