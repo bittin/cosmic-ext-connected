@@ -55,13 +55,16 @@ cosmic-ext-connected/
 │   ├── device/             # Device fetch and actions
 │   ├── sms/                # SMS conversations, views, subscriptions
 │   │   ├── send.rs                       # SMS sending (sendWithoutConversation for both replies and new messages)
-│   │   └── conversation_subscription.rs  # Incremental conversation loading
+│   │   ├── conversation_subscription.rs  # Dual D-Bus request + incremental conversation loading
+│   │   ├── fetch.rs                      # Conversation fetching and caching
+│   │   └── views.rs                      # SMS conversation list and thread views
 │   ├── media/              # Media player controls
 │   └── views/              # Shared UI components
 │
 ├── kdeconnect-dbus/src/
 │   ├── daemon.rs           # org.kde.kdeconnect.daemon proxy
 │   ├── device.rs           # Device interface proxy
+│   ├── contacts.rs         # ContactLookup: vCard parsing, name resolution, group display names
 │   └── plugins/            # Per-plugin D-Bus proxies
 │
 └── docs/                   # Detailed implementation docs
@@ -119,6 +122,12 @@ The daemon exposes `requestConversation` on two interfaces with **different beha
 - **`org.kde.kdeconnect.device.conversations`** (at `/devices/{id}`): Creates a `RequestConversationWorker` that reads from a local persistent store and emits `conversationUpdated` D-Bus signals, but does **NOT** populate `m_conversations`.
 
 We fire both: SMS plugin first (cache priming), then Conversations interface (per-message signals for UI).
+
+### Contact loading is per-device and loaded once
+`ContactLookup` parses vCard files from `~/.local/share/kpeoplevcard/kdeconnect-{device-id}/`. Contacts are loaded once when the SMS view opens and preserved across view re-opens for the same device. They are only cleared when switching to a different device. This avoids a race condition where async contact loading completes after the conversation list has already rendered with phone numbers.
+
+### Group display names
+`ContactLookup::get_group_display_name(&addresses, limit)` resolves multiple addresses into comma-separated contact names (e.g. "Alice, Bob, Charlie, ..."). Used in the conversation list, thread header, and SMS notifications. Per-message sender labels use `get_name_or_number` for the individual message sender.
 
 ### `replyToConversation` is unreliable — use `sendWithoutConversation`
 `replyToConversation(threadId, message, attachments)` looks up addresses from `m_conversations[threadId]`. If the cache is empty, it **silently returns without sending** (no D-Bus error). Since `m_conversations` is only populated by phone-push responses through `addMessages()` (not by the Conversations interface's local-store reads), the cache is often empty.
