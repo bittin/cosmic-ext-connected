@@ -8,7 +8,7 @@ use crate::app::Message;
 use crate::constants::dbus::RETRY_DELAY_SECS;
 use crate::constants::sms::{SIGNAL_ACTIVITY_TIMEOUT_MS, TIMEOUT_CHECK_INTERVAL_MS};
 use futures_util::StreamExt;
-use kdeconnect_dbus::plugins::{parse_sms_message, ConversationSummary, ConversationsProxy};
+use kdeconnect_dbus::plugins::{parse_sms_message, ConversationSummary, ConversationsProxy, SmsProxy};
 use zbus::Connection;
 
 /// Overall timeout for conversation list sync (seconds).
@@ -179,7 +179,47 @@ pub fn conversation_list_subscription(
                         }
                     }
 
-                    // Fire request for conversation threads
+                    // Fire TWO requests (mirrors the pattern from conversation message loading):
+                    // 1. SMS plugin's requestAllConversations → sends network packet to phone →
+                    //    response goes through addMessages() → populates m_conversations and
+                    //    emits conversationCreated signals
+                    // 2. Conversations interface's requestAllConversationThreads → may read
+                    //    from local store → emits signals for cached conversations
+                    //
+                    // Without the SMS plugin request, the Conversations interface may only
+                    // read from an empty local store and emit no signals.
+                    let sms_path = format!(
+                        "{}/devices/{}/sms",
+                        kdeconnect_dbus::BASE_PATH,
+                        device_id
+                    );
+
+                    match SmsProxy::builder(&conn)
+                        .path(sms_path.as_str())
+                        .ok()
+                        .map(|b| b.build())
+                    {
+                        Some(fut) => match fut.await {
+                            Ok(sms_proxy) => {
+                                if let Err(e) = sms_proxy.request_all_conversations().await {
+                                    tracing::warn!("SMS plugin requestAllConversations failed (non-fatal): {}", e);
+                                } else {
+                                    tracing::debug!(
+                                        "SMS plugin requestAllConversations fired for device {} (cache priming)",
+                                        device_id
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to create SMS proxy (non-fatal): {}", e);
+                            }
+                        },
+                        None => {
+                            tracing::warn!("Failed to build SMS proxy path (non-fatal)");
+                        }
+                    }
+
+                    // Conversations interface request (local store signals)
                     if let Some(ref proxy) = conversations_proxy {
                         tracing::info!("Firing requestAllConversationThreads for device {}", device_id);
                         if let Err(e) = proxy.request_all_conversation_threads().await {
