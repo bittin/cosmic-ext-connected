@@ -129,6 +129,16 @@ We fire both: SMS plugin first (cache priming), then Conversations interface (pe
 ### Group display names
 `ContactLookup::get_group_display_name(&addresses, limit)` resolves multiple addresses into comma-separated contact names (e.g. "Alice, Bob, Charlie, ..."). Used in the conversation list, thread header, and SMS notifications. Per-message sender labels use `get_name_or_number` for the individual message sender.
 
+### `conversationLoaded` signal count is unreliable
+`conversationLoaded(threadId, messageCount)` fires when the Conversations interface finishes reading its local persistent store. The `messageCount` reflects **how many messages were in the local store**, not the phone's total. After a reboot, the local store may have 0-1 messages even for conversations with hundreds. Never use this count for pagination decisions — use `messages.len() >= messages_per_page` as a heuristic instead.
+
+### Message loading uses a two-phase deadline-based subscription
+`conversation_message_subscription` in `subscriptions.rs` uses a state machine (`Init` → `Listening` → `Done`) with two phases:
+- **Phase 1:** Wait for local store signals (`conversationUpdated` per message, then `conversationLoaded`). No activity timeout — just the hard timeout safety net (20s).
+- **Phase 2:** After `conversationLoaded`, keep listening with an 8s activity deadline (`phone_deadline`) for phone response data. The deadline resets **only on matching signals** (messages for our thread), not on unrelated D-Bus traffic. This is critical because `MessageStream` receives all D-Bus signals on the session bus.
+
+The `phone_deadline` must be stored in the `Listening` state struct (not a local variable) because each `unfold` yield exits and re-enters the function.
+
 ### `replyToConversation` is unreliable — use `sendWithoutConversation`
 `replyToConversation(threadId, message, attachments)` looks up addresses from `m_conversations[threadId]`. If the cache is empty, it **silently returns without sending** (no D-Bus error). Since `m_conversations` is only populated by phone-push responses through `addMessages()` (not by the Conversations interface's local-store reads), the cache is often empty.
 

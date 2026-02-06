@@ -67,63 +67,79 @@ Message::ConversationReceived { device_id, conversation } => {
 - Visual feedback during sync ("Syncing conversations...")
 - Mirrors KDE Connect SMS app's proven approach
 
-### Message Thread Loading (Subscription-Based)
+### Message Thread Loading (Two-Phase Subscription)
 
-Individual message threads use a **subscription-based** approach for incremental display:
+Individual message threads use a **two-phase subscription** approach that handles both the local persistent store and phone response data:
 
 ```
 OpenConversation → Set state, activate subscription
                             ↓
          Subscription sets up D-Bus match rules
                             ↓
-         Subscription fires requestConversation() D-Bus call
+         Subscription fires TWO requestConversation() D-Bus calls
+         (SMS plugin for cache priming, Conversations for UI signals)
                             ↓
-         conversationUpdated signals → ConversationMessageReceived messages
+     ┌── Phase 1: Local store read ──────────────────────────────┐
+     │  conversationUpdated signals → ConversationMessageReceived │
+     │  conversationLoaded signal   → ConversationStoreLoaded     │
+     │  (scroll to bottom, start phone deadline)                  │
+     └────────────────────────────────────────────────────────────┘
                             ↓
-         conversationLoaded signal → ConversationLoadComplete message
+     ┌── Phase 2: Phone response window (8s activity timeout) ───┐
+     │  conversationUpdated signals → ConversationMessageReceived │
+     │  (deadline resets on each MATCHING signal only)            │
+     │  Timeout or hard deadline    → ConversationLoadComplete    │
+     └────────────────────────────────────────────────────────────┘
 ```
 
 **Key implementation details:**
 
 1. `conversation_message_subscription` in `subscriptions.rs` handles the entire flow
-2. Match rules are set up BEFORE firing the D-Bus request (prevents race conditions)
-3. Messages arrive via `ConversationMessageReceived` and are inserted sorted by date
-4. After each message insert, scroll-to-bottom keeps newest messages visible
-5. `ConversationLoadComplete` finalizes state when `conversationLoaded` signal arrives
+2. Uses a state machine: `Init` → `Listening` (two phases) → `Done`
+3. Match rules are set up BEFORE firing the D-Bus request (prevents race conditions)
+4. Messages arrive via `ConversationMessageReceived` and are inserted sorted by date
+5. Scroll is deferred until `ConversationStoreLoaded` (not per-message) to prevent jarring jumps
+6. `phone_deadline` persists in the state struct across `unfold` yields — only resets on matching signals, not unrelated D-Bus traffic
+
+**Why two phases?** The `conversationLoaded` signal fires when the local persistent store read completes. After a reboot, this store may be empty/sparse (0-1 messages), while the phone's response (via SMS plugin → `addMessages()`) delivers the actual messages asynchronously. Phase 2 catches these late-arriving messages.
+
+**Timeout constants** (in `constants.rs`):
+- `MESSAGE_SUBSCRIPTION_TIMEOUT_SECS = 20` — hard timeout safety net for both phases
+- `PHONE_RESPONSE_TIMEOUT_MS = 8000` — activity timeout in Phase 2 (resets on matching signals)
 
 ```rust
-// In subscriptions.rs - subscription fires requests after setup
-let stream = zbus::MessageStream::from(&conn);
-
-// Fire TWO requests after match rules are ready:
-// 1. SMS plugin (cache priming): sends network packet to phone → response flows
-//    through addMessages() → populates m_conversations (required for replyToConversation)
-sms_proxy.request_conversation(thread_id, 0, count).await?;
-// 2. Conversations interface (UI signals): reads from local store via worker →
-//    emits per-message conversationUpdated signals for our subscription
-conversations_proxy.request_conversation(thread_id, 0, count).await?;
-
-// Listen for conversationUpdated/conversationLoaded signals...
-```
-
-```rust
-// In app.rs - incremental display with scroll anchoring
-Message::ConversationMessageReceived { thread_id, message } => {
-    // Insert sorted by date
-    let insert_pos = self.messages.iter()
-        .position(|m| m.date > message.date)
-        .unwrap_or(self.messages.len());
-    self.messages.insert(insert_pos, message);
-
-    // Scroll to bottom after each insert (keeps newest visible)
-    return scrollable::snap_to(Id::new("message-thread"), RelativeOffset::END);
+// State machine in subscriptions.rs
+enum ConversationMessageState {
+    Init { thread_id, device_id, messages_per_page },
+    Listening {
+        conn, stream, thread_id, device_id, messages_per_page,
+        start_time,           // for hard timeout
+        local_store_done,     // phase flag
+        total_message_count,  // from conversationLoaded (local store count)
+        phone_deadline,       // activity deadline, persists across unfold yields
+    },
+    Done,
 }
 ```
 
-**Benefits over blocking approach:**
-- Messages appear immediately as they arrive (no timeout delay)
-- Scroll stays anchored to newest messages during loading
-- No arbitrary timeouts - completion signaled by `conversationLoaded`
+```rust
+// In app.rs - incremental display with deferred scroll
+Message::ConversationMessageReceived { thread_id, message } => {
+    // Insert sorted by date, deduplicate via known_message_ids
+    self.messages.insert(insert_pos, message);
+    // NO scroll here — deferred until ConversationStoreLoaded/ConversationLoadComplete
+}
+
+Message::ConversationStoreLoaded { thread_id, total_count } => {
+    // Local store done — scroll to bottom, update pagination, keep listening
+}
+
+Message::ConversationLoadComplete { thread_id, total_count } => {
+    // Phone response done — finalize, clear sync indicator, drop subscription
+}
+```
+
+**Pagination heuristic:** The `total_count` from `conversationLoaded` reflects the **local store count**, not the phone's total message count. After a reboot, this can be 0-1 even for conversations with hundreds of messages. The pagination check uses `messages.len() >= messages_per_page` as a fallback heuristic — if a full page was loaded, assume more exist.
 
 ### Scroll-Based Lazy Loading (Older Messages)
 
