@@ -36,6 +36,16 @@ pub mod sms {
     /// Timeout for loading messages in a conversation thread (seconds).
     pub const MESSAGE_FETCH_TIMEOUT_SECS: u64 = 10;
 
+    /// Hard timeout for message loading subscription (seconds).
+    /// Safety net if conversationLoaded signal never arrives.
+    pub const MESSAGE_SUBSCRIPTION_TIMEOUT_SECS: u64 = 20;
+
+    /// Activity timeout after conversationLoaded for phone response data (milliseconds).
+    /// After the local store read completes (conversationLoaded signal), we keep listening
+    /// this long for additional messages from the phone. Resets on each D-Bus signal.
+    /// Needed because the local store may be empty/sparse after a reboot.
+    pub const PHONE_RESPONSE_TIMEOUT_MS: u64 = 8000;
+
     /// Interval for polling in fallback mode (milliseconds).
     pub const FALLBACK_POLLING_INTERVAL_MS: u64 = 500;
 

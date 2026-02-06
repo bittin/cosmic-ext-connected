@@ -248,7 +248,12 @@ pub enum Message {
         thread_id: i64,
         message: SmsMessage,
     },
-    /// Conversation load complete signal received (all requested messages sent)
+    /// Local store read complete - scroll to bottom, keep listening for phone data
+    ConversationStoreLoaded {
+        thread_id: i64,
+        total_count: u64,
+    },
+    /// All loading complete (phone response timeout) - finalize and drop subscription
     ConversationLoadComplete {
         thread_id: i64,
         total_count: u64,
@@ -1668,12 +1673,43 @@ impl Application for ConnectApplet {
                     self.message_sync_active = true;
                 }
 
-                // Scroll to bottom after each message to keep newest visible
-                // This prevents jarring jumps when older messages are inserted above
-                return scrollable::snap_to(
-                    widget::Id::new("message-thread"),
-                    scrollable::RelativeOffset::END,
+                // Defer scroll until ConversationStoreLoaded to prevent jarring jumps
+                // during incremental loading. The first scroll happens when the local
+                // store read completes; the final scroll when the phone response finishes.
+                return cosmic::app::Task::none();
+            }
+            Message::ConversationStoreLoaded { thread_id, total_count } => {
+                // Local store read complete - scroll to show messages while
+                // continuing to listen for phone response data
+                if self.current_thread_id != Some(thread_id) {
+                    return cosmic::app::Task::none();
+                }
+
+                tracing::info!(
+                    "Local store loaded for thread {}: {} messages displayed, {} total in store",
+                    thread_id,
+                    self.messages.len(),
+                    total_count
                 );
+
+                // Update pagination state
+                // Note: total_count from conversationLoaded reflects the LOCAL store count,
+                // which may be 0 or 1 after a reboot. Use a heuristic instead: if we've
+                // loaded a full page, there are likely more messages available.
+                self.messages_loaded_count = self.messages.len() as u32;
+                self.messages_has_more = if total_count > 0 && (self.messages.len() as u64) < total_count {
+                    true
+                } else {
+                    self.messages.len() >= self.config.messages_per_page as usize
+                };
+
+                // Scroll to bottom to show latest messages
+                if !self.messages.is_empty() {
+                    return scrollable::snap_to(
+                        widget::Id::new("message-thread"),
+                        scrollable::RelativeOffset::END,
+                    );
+                }
             }
             Message::ConversationLoadComplete { thread_id, total_count } => {
                 // Guard: Only process if still viewing this thread
@@ -1697,8 +1733,15 @@ impl Application for ConnectApplet {
                 self.messages.sort_by(|a, b| a.date.cmp(&b.date));
 
                 // Update pagination state
+                // Note: total_count from conversationLoaded reflects the LOCAL store count,
+                // not the phone's total. Use a heuristic: if we've loaded a full page
+                // worth of messages, there are likely more available.
                 self.messages_loaded_count = self.messages.len() as u32;
-                self.messages_has_more = (self.messages.len() as u64) < total_count;
+                self.messages_has_more = if total_count > 0 && (self.messages.len() as u64) < total_count {
+                    true
+                } else {
+                    self.messages.len() >= self.config.messages_per_page as usize
+                };
 
                 // Update last_seen_sms with the newest message timestamp
                 if let Some(newest) = self.messages.iter().map(|m| m.date).max() {

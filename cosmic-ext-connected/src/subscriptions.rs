@@ -2,6 +2,7 @@
 
 use crate::app::Message;
 use crate::constants::dbus::RETRY_DELAY_SECS;
+use crate::constants::sms::{MESSAGE_SUBSCRIPTION_TIMEOUT_SECS, PHONE_RESPONSE_TIMEOUT_MS};
 use crate::notifications::{
     should_show_call_notification, should_show_file_notification, should_show_sms_notification,
 };
@@ -579,8 +580,22 @@ enum ConversationMessageState {
         stream: zbus::MessageStream,
         thread_id: i64,
         device_id: String,
+        #[allow(dead_code)]
         messages_per_page: u32,
+        /// When we started listening (for hard timeout safety net)
+        start_time: tokio::time::Instant,
+        /// Set when conversationLoaded arrives; switches to deadline-based timeout
+        /// to wait for phone response data (local store may be sparse after reboot)
+        local_store_done: bool,
+        /// Total message count from conversationLoaded signal (for final emission)
+        total_message_count: Option<u64>,
+        /// Deadline for phone response activity timeout. Set when conversationLoaded
+        /// arrives, extended when a matching message is received. Must be in the state
+        /// struct because each `unfold` yield exits and re-enters the function.
+        phone_deadline: Option<tokio::time::Instant>,
     },
+    /// Terminal state - subscription is complete
+    Done,
 }
 
 /// Create a stream that listens for conversation messages during loading.
@@ -813,6 +828,10 @@ pub fn conversation_message_subscription(
                             thread_id,
                             device_id,
                             messages_per_page,
+                            start_time: tokio::time::Instant::now(),
+                            local_store_done: false,
+                            total_message_count: None,
+                            phone_deadline: None,
                         },
                     ))
                 }
@@ -822,105 +841,238 @@ pub fn conversation_message_subscription(
                     thread_id,
                     device_id,
                     messages_per_page,
+                    start_time,
+                    mut local_store_done,
+                    mut total_message_count,
+                    mut phone_deadline,
                 } => {
-                    // Wait for conversation signals
-                    loop {
-                        match stream.next().await {
-                            Some(Ok(msg)) => {
-                                if msg.header().message_type() == zbus::message::Type::Signal {
-                                    if let (Some(interface), Some(member)) =
-                                        (msg.header().interface(), msg.header().member())
-                                    {
-                                        let iface_str = interface.as_str();
-                                        let member_str = member.as_str();
+                    // Two-phase timeout strategy:
+                    //
+                    // Phase 1 (before conversationLoaded): Wait for the hard timeout.
+                    //   The local store read emits conversationUpdated per message, then
+                    //   conversationLoaded when done. No activity timeout needed here.
+                    //
+                    // Phase 2 (after conversationLoaded): Keep listening with a deadline-
+                    //   based activity timeout for phone response data. The local store may
+                    //   be empty/sparse after a reboot, so the phone response (via SMS
+                    //   plugin → addMessages) provides the actual messages. The deadline
+                    //   resets only when a MATCHING signal arrives (message for our thread),
+                    //   not on unrelated D-Bus traffic.
+                    //
+                    // Hard timeout: absolute safety net for both phases.
+                    let hard_timeout = std::time::Duration::from_secs(MESSAGE_SUBSCRIPTION_TIMEOUT_SECS);
+                    let phone_timeout = std::time::Duration::from_millis(PHONE_RESPONSE_TIMEOUT_MS);
+                    let hard_deadline = start_time + hard_timeout;
 
-                                        // Handle conversationUpdated signals (individual messages)
-                                        if iface_str == "org.kde.kdeconnect.device.conversations"
-                                            && member_str == "conversationUpdated"
-                                        {
-                                            let body = msg.body();
-                                            if let Ok(value) =
-                                                body.deserialize::<zbus::zvariant::OwnedValue>()
+                    loop {
+                        let now = tokio::time::Instant::now();
+
+                        // Hard timeout check (absolute)
+                        if now >= hard_deadline {
+                            tracing::info!(
+                                "Subscription: hard timeout reached for thread {} after {:?}",
+                                thread_id,
+                                start_time.elapsed()
+                            );
+                            return Some((
+                                Message::ConversationLoadComplete {
+                                    thread_id,
+                                    total_count: total_message_count.unwrap_or(0),
+                                },
+                                ConversationMessageState::Done,
+                            ));
+                        }
+
+                        // Compute wait duration based on phase:
+                        // Phase 1: wait until hard deadline
+                        // Phase 2: wait until phone deadline (capped by hard deadline)
+                        let effective_deadline = if let Some(pd) = phone_deadline {
+                            pd.min(hard_deadline)
+                        } else {
+                            hard_deadline
+                        };
+
+                        // Check if phone deadline already passed
+                        if local_store_done {
+                            if let Some(pd) = phone_deadline {
+                                if now >= pd {
+                                    tracing::info!(
+                                        "Subscription: phone response timeout for thread {} \
+                                         (no matching signals for {:?} after conversationLoaded)",
+                                        thread_id,
+                                        phone_timeout
+                                    );
+                                    return Some((
+                                        Message::ConversationLoadComplete {
+                                            thread_id,
+                                            total_count: total_message_count.unwrap_or(0),
+                                        },
+                                        ConversationMessageState::Done,
+                                    ));
+                                }
+                            }
+                        }
+
+                        let wait_duration = effective_deadline.saturating_duration_since(now);
+
+                        tokio::select! {
+                            biased;
+
+                            // Priority: D-Bus signals
+                            msg_result = stream.next() => {
+                                match msg_result {
+                                    Some(Ok(msg)) => {
+                                        if msg.header().message_type() == zbus::message::Type::Signal {
+                                            if let (Some(interface), Some(member)) =
+                                                (msg.header().interface(), msg.header().member())
                                             {
-                                                if let Some(sms_msg) = parse_sms_message(&value) {
-                                                    // Only process messages for our thread
-                                                    if sms_msg.thread_id == thread_id {
-                                                        tracing::debug!(
-                                                            "Subscription: received message uid={} for thread {}",
-                                                            sms_msg.uid,
-                                                            thread_id
-                                                        );
-                                                        return Some((
-                                                            Message::ConversationMessageReceived {
+                                                let iface_str = interface.as_str();
+                                                let member_str = member.as_str();
+
+                                                // Handle conversationUpdated signals (individual messages)
+                                                if iface_str == "org.kde.kdeconnect.device.conversations"
+                                                    && member_str == "conversationUpdated"
+                                                {
+                                                    let body = msg.body();
+                                                    if let Ok(value) =
+                                                        body.deserialize::<zbus::zvariant::OwnedValue>()
+                                                    {
+                                                        if let Some(sms_msg) = parse_sms_message(&value) {
+                                                            // Only process messages for our thread
+                                                            if sms_msg.thread_id == thread_id {
+                                                                tracing::debug!(
+                                                                    "Subscription: received message uid={} for thread {}",
+                                                                    sms_msg.uid,
+                                                                    thread_id
+                                                                );
+                                                                // Reset phone deadline on matching signal
+                                                                if local_store_done {
+                                                                    phone_deadline = Some(
+                                                                        tokio::time::Instant::now() + phone_timeout,
+                                                                    );
+                                                                }
+                                                                return Some((
+                                                                    Message::ConversationMessageReceived {
+                                                                        thread_id,
+                                                                        message: sms_msg,
+                                                                    },
+                                                                    ConversationMessageState::Listening {
+                                                                        conn,
+                                                                        stream,
+                                                                        thread_id,
+                                                                        device_id,
+                                                                        messages_per_page,
+                                                                        start_time,
+                                                                        local_store_done,
+                                                                        total_message_count,
+                                                                        phone_deadline,
+                                                                    },
+                                                                ));
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                // Handle conversationLoaded signals (local store done)
+                                                if iface_str == "org.kde.kdeconnect.device.conversations"
+                                                    && member_str == "conversationLoaded"
+                                                {
+                                                    let body = msg.body();
+                                                    // Signal args: (conversationId: i64, messageCount: u64)
+                                                    if let Ok((conv_id, message_count)) =
+                                                        body.deserialize::<(i64, u64)>()
+                                                    {
+                                                        if conv_id == thread_id {
+                                                            tracing::info!(
+                                                                "Subscription: conversationLoaded for thread {}, {} messages in store. \
+                                                                 Starting phone response window ({:?})...",
                                                                 thread_id,
-                                                                message: sms_msg,
-                                                            },
-                                                            ConversationMessageState::Listening {
-                                                                conn,
-                                                                stream,
-                                                                thread_id,
-                                                                device_id,
-                                                                messages_per_page,
-                                                            },
-                                                        ));
+                                                                message_count,
+                                                                phone_timeout
+                                                            );
+                                                            local_store_done = true;
+                                                            total_message_count = Some(message_count);
+                                                            // Start phone activity deadline
+                                                            phone_deadline = Some(
+                                                                tokio::time::Instant::now() + phone_timeout,
+                                                            );
+                                                            // Yield scroll event, then continue
+                                                            // in phase 2 (deadline-based timeout for phone data)
+                                                            return Some((
+                                                                Message::ConversationStoreLoaded {
+                                                                    thread_id,
+                                                                    total_count: message_count,
+                                                                },
+                                                                ConversationMessageState::Listening {
+                                                                    conn,
+                                                                    stream,
+                                                                    thread_id,
+                                                                    device_id,
+                                                                    messages_per_page,
+                                                                    start_time,
+                                                                    local_store_done,
+                                                                    total_message_count,
+                                                                    phone_deadline,
+                                                                },
+                                                            ));
+                                                        }
                                                     }
                                                 }
                                             }
                                         }
-
-                                        // Handle conversationLoaded signals (completion)
-                                        if iface_str == "org.kde.kdeconnect.device.conversations"
-                                            && member_str == "conversationLoaded"
-                                        {
-                                            let body = msg.body();
-                                            // Signal args: (conversationId: i64, messageCount: u64)
-                                            if let Ok((conv_id, message_count)) =
-                                                body.deserialize::<(i64, u64)>()
-                                            {
-                                                if conv_id == thread_id {
-                                                    tracing::info!(
-                                                        "Subscription: conversation {} loaded, {} total messages",
-                                                        thread_id,
-                                                        message_count
-                                                    );
-                                                    return Some((
-                                                        Message::ConversationLoadComplete {
-                                                            thread_id,
-                                                            total_count: message_count,
-                                                        },
-                                                        ConversationMessageState::Listening {
-                                                            conn,
-                                                            stream,
-                                                            thread_id,
-                                                            device_id,
-                                                            messages_per_page,
-                                                        },
-                                                    ));
-                                                }
-                                            }
-                                        }
+                                        // Non-matching signals: continue loop WITHOUT
+                                        // resetting the phone deadline. This is critical —
+                                        // unrelated D-Bus traffic must not extend the timeout.
+                                    }
+                                    Some(Err(e)) => {
+                                        tracing::warn!("D-Bus conversation stream error: {}", e);
+                                    }
+                                    None => {
+                                        tracing::warn!(
+                                            "D-Bus conversation stream ended for thread {}",
+                                            thread_id
+                                        );
+                                        return Some((
+                                            Message::ConversationLoadComplete {
+                                                thread_id,
+                                                total_count: total_message_count.unwrap_or(0),
+                                            },
+                                            ConversationMessageState::Done,
+                                        ));
                                     }
                                 }
                             }
-                            Some(Err(e)) => {
-                                tracing::warn!("D-Bus conversation stream error: {}", e);
-                            }
-                            None => {
-                                tracing::warn!(
-                                    "D-Bus conversation stream ended for thread {}, reconnecting...",
-                                    thread_id
-                                );
-                                return Some((
-                                    Message::SmsError("Conversation stream ended".to_string()),
-                                    ConversationMessageState::Init {
+
+                            // Timeout — either phone deadline or hard deadline
+                            _ = tokio::time::sleep(wait_duration) => {
+                                if local_store_done {
+                                    tracing::info!(
+                                        "Subscription: phone response timeout for thread {} \
+                                         (no matching signals for {:?} after conversationLoaded)",
                                         thread_id,
-                                        device_id,
-                                        messages_per_page,
+                                        phone_timeout
+                                    );
+                                } else {
+                                    tracing::info!(
+                                        "Subscription: hard timeout for thread {} \
+                                         (no conversationLoaded received)",
+                                        thread_id
+                                    );
+                                }
+                                return Some((
+                                    Message::ConversationLoadComplete {
+                                        thread_id,
+                                        total_count: total_message_count.unwrap_or(0),
                                     },
+                                    ConversationMessageState::Done,
                                 ));
                             }
                         }
                     }
+                }
+                ConversationMessageState::Done => {
+                    // Terminal state - subscription is complete
+                    None
                 }
             }
         },
