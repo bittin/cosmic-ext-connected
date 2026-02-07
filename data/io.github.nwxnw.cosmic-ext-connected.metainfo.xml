@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.nwxnw.cosmic-ext-connected</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0</project_license>
+  <name>Connected</name>
+  <summary>Phone connectivity applet for the COSMIC desktop</summary>
+  <description>
+    <p>Connected is a panel applet for the COSMIC desktop environment that provides
+    phone-to-desktop connectivity using KDE Connect as a backend.</p>
+    <p>Features include:</p>
+    <ul>
+      <li>Device battery status and connectivity monitoring</li>
+      <li>SMS messaging with conversation threads</li>
+      <li>Media player remote control</li>
+      <li>Desktop notifications for calls, messages, and file transfers</li>
+      <li>Ping your phone to find it</li>
+      <li>File sharing between devices</li>
+    </ul>
+  </description>
+  <url type="homepage">https://github.com/nwxnw/cosmic-ext-connected</url>
+  <url type="bugtracker">https://github.com/nwxnw/cosmic-ext-connected/issues</url>
+  <url type="vcs-browser">https://github.com/nwxnw/cosmic-ext-connected</url>
+  <launchable type="desktop-id">io.github.nwxnw.cosmic-ext-connected.desktop</launchable>
+  <provides>
+    <binary>cosmic-ext-connected</binary>
+  </provides>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+    <control>touch</control>
+  </supports>
+  <categories>
+    <category>COSMIC</category>
+  </categories>
+  <keywords>
+    <keyword>COSMIC</keyword>
+    <keyword>KDE Connect</keyword>
+    <keyword>phone</keyword>
+    <keyword>SMS</keyword>
+    <keyword>notifications</keyword>
+  </keywords>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.0" date="2025-01-01">
+      <description>
+        <p>Initial release.</p>
+      </description>
+    </release>
+  </releases>
+</component>
