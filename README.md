@@ -4,8 +4,6 @@ A phone connectivity applet for the COSMIC™ desktop, powered by KDE Connect.
 
 Connected links your Android phone to your COSMIC desktop, enabling SMS messaging, file sharing, notifications, media control, and more—all through a native libcosmic interface.
 
-Personal note: This project relied on Claude Code as a senior developer. My programming experience was at one time competent, but is outdated by decades. This project is much more than an afternoon vibe code - but the coding was done by Claude. It allowed me to create the app I needed, and I thought others might want it as well.
-
 ## Features
 
 - **Device Management** - Pair, unpair, and monitor connected devices
@@ -26,9 +24,29 @@ Personal note: This project relied on Claude Code as a senior developer. My prog
 - [COSMIC Desktop Environment](https://github.com/pop-os/cosmic-epoch)
 - [KDE Connect](https://kdeconnect.kde.org/) daemon (`kdeconnectd`)
 - [KDE Connect Android app](https://play.google.com/store/apps/details?id=org.kde.kdeconnect_tp) (or from [F-Droid](https://f-droid.org/packages/org.kde.kdeconnect_tp/))
-- Rust toolchain (for building from source)
+- Rust toolchain (for building from source) or Flatpak
 
 ## Installation
+
+### Flatpak
+
+1. **Install prerequisites:**
+   ```bash
+   flatpak install org.freedesktop.Sdk//24.08 org.freedesktop.Sdk.Extension.rust-stable//24.08 com.system76.Cosmic.BaseApp//stable
+   ```
+
+2. **Build and install:**
+   ```bash
+   git clone https://github.com/nwxnw/cosmic-ext-connected.git
+   cd cosmic-ext-connected
+   flatpak-builder --user --install --force-clean build-dir io.github.nwxnw.cosmic-ext-connected.json
+   ```
+
+3. **Add to panel:**
+   - Open: Settings → Desktop → Panel → Applets → Add Applet
+   - Find "Connected" and add it to your panel
+
+> **Note:** The Flatpak sandbox requires KDE Connect daemon to be installed on the host system.
 
 ### From Source
 
