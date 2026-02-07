@@ -49,7 +49,7 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         if device.is_reachable && device.is_paired {
             let device_id_for_ping = device.id.clone();
             let ping_btn =
-                widget::button::icon(icon::from_name("emblem-synchronizing-symbolic").size(20))
+                widget::button::icon(icon::from_name("network-transmit-symbolic").size(20))
                     .on_press(Message::SendPing(device_id_for_ping))
                     .padding(sp.space_xxs);
             let ping_with_tooltip = tooltip(

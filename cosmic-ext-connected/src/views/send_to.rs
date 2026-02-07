@@ -70,7 +70,7 @@ pub fn view_send_to(params: SendToParams<'_>) -> Element<'_, Message> {
 
     // Send ping list item
     let send_ping_row = row![
-        icon::from_name("emblem-synchronizing-symbolic").size(24),
+        icon::from_name("network-transmit-symbolic").size(24),
         text::body(fl!("send-ping")),
         widget::horizontal_space(),
     ]
