@@ -48,6 +48,8 @@ install-only:
     install -Dm644 data/{{desktop_file}} {{sharedir}}/applications/{{desktop_file}}
     install -Dm644 data/{{metainfo_file}} {{sharedir}}/metainfo/{{metainfo_file}}
     install -Dm644 data/icons/hicolor/scalable/apps/{{icon_file}} {{sharedir}}/icons/hicolor/scalable/apps/{{icon_file}}
+    install -Dm644 data/icons/hicolor/scalable/apps/cosmic-ext-connected-symbolic.svg {{sharedir}}/icons/hicolor/scalable/apps/cosmic-ext-connected-symbolic.svg
+    install -Dm644 data/icons/hicolor/scalable/apps/cosmic-ext-connected-disconnected-symbolic.svg {{sharedir}}/icons/hicolor/scalable/apps/cosmic-ext-connected-disconnected-symbolic.svg
     @echo "Installed {{applet_name}} to {{bindir}}"
     @echo "Installed {{desktop_file}} to {{sharedir}}/applications"
     @echo ""
@@ -63,6 +65,8 @@ uninstall:
     rm -f {{sharedir}}/applications/{{desktop_file}}
     rm -f {{sharedir}}/metainfo/{{metainfo_file}}
     rm -f {{sharedir}}/icons/hicolor/scalable/apps/{{icon_file}}
+    rm -f {{sharedir}}/icons/hicolor/scalable/apps/cosmic-ext-connected-symbolic.svg
+    rm -f {{sharedir}}/icons/hicolor/scalable/apps/cosmic-ext-connected-disconnected-symbolic.svg
     @echo "Uninstalled {{applet_name}}"
     @echo "Restart cosmic-panel to remove from panel: killall cosmic-panel"
 

@@ -72,8 +72,10 @@ pub fn view_conversation_list(params: ConversationListParams<'_>) -> Element<'_,
     // Build header with optional sync indicator
     let mut header_row = row![
         widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
+            .class(cosmic::theme::Button::Link)
             .on_press(Message::CloseSmsView),
-        text::heading(fl!("messages-title", device = device_name)),
+        text::heading(fl!("messages-title", device = device_name))
+            .class(cosmic::theme::Text::Accent),
     ]
     .spacing(sp.space_xxs)
     .align_y(Alignment::Center);
@@ -228,8 +230,10 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
     // Build header with optional sync indicator
     let mut header_row = row![
         widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
+            .class(cosmic::theme::Button::Link)
             .on_press(Message::CloseConversation),
-        text::heading(display_name),
+        text::heading(display_name)
+            .class(cosmic::theme::Text::Accent),
     ]
     .spacing(sp.space_xxs)
     .align_y(Alignment::Center);
@@ -455,8 +459,10 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
     let header = applet::padded_control(
         row![
             widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
+                .class(cosmic::theme::Button::Link)
                 .on_press(Message::CloseNewMessage),
-            text::heading(fl!("new-message")),
+            text::heading(fl!("new-message"))
+                .class(cosmic::theme::Text::Accent),
             widget::horizontal_space(),
         ]
         .spacing(sp.space_xxs)

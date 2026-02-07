@@ -3,7 +3,6 @@
 use crate::app::{DeviceInfo, Message};
 use crate::config::Config;
 use crate::fl;
-use crate::views::helpers::get_device_icon_name;
 use cosmic::applet;
 use cosmic::iced::advanced::widget::text::Style as TextStyle;
 use cosmic::iced::widget::{column, row};
@@ -83,8 +82,6 @@ pub fn view<'a>(
 fn device_row<'a>(device: &'a DeviceInfo, config: &'a Config) -> Element<'a, Message> {
     let sp = cosmic::theme::spacing();
 
-    let icon_name = get_device_icon_name(device.device_type.as_str());
-
     let (status_text, is_offline) = match (
         device.is_reachable,
         device.is_paired,
@@ -115,7 +112,7 @@ fn device_row<'a>(device: &'a DeviceInfo, config: &'a Config) -> Element<'a, Mes
     };
 
     let mut row_content = row![
-        icon::from_name(icon_name).size(24),
+        icon::from_name("cosmic-ext-connected-symbolic").size(24),
         column![text::body(device.name.clone()), status_widget,].spacing(2),
     ]
     .spacing(sp.space_xs)

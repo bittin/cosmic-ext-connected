@@ -30,8 +30,10 @@ pub fn view_send_to(params: SendToParams<'_>) -> Element<'_, Message> {
     let header = applet::padded_control(
         row![
             widget::button::icon(icon::from_name("go-previous-symbolic"))
+                .class(cosmic::theme::Button::Link)
                 .on_press(Message::BackFromSendTo),
-            text::heading(fl!("send-to-title", device = device_type)),
+            text::heading(fl!("send-to-title", device = device_type))
+                .class(cosmic::theme::Text::Accent),
         ]
         .spacing(sp.space_xxs)
         .align_y(Alignment::Center),
@@ -113,7 +115,6 @@ pub fn view_send_to(params: SendToParams<'_>) -> Element<'_, Message> {
         column![
             header,
             status_bar,
-            divider(),
             share_file_item,
             send_clipboard_item,
             send_ping_item,

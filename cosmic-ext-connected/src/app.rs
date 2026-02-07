@@ -2388,9 +2388,9 @@ impl Application for ConnectApplet {
     fn view(&self) -> Element<'_, Self::Message> {
         // Panel button with icon
         let icon_name = if self.devices.iter().any(|d| d.is_reachable && d.is_paired) {
-            "phone-symbolic"
+            "cosmic-ext-connected-symbolic"
         } else {
-            "call-stop-symbolic"
+            "cosmic-ext-connected-disconnected-symbolic"
         };
 
         self.core

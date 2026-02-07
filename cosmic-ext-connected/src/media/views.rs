@@ -25,8 +25,10 @@ pub fn view_media_controls(params: MediaControlsParams<'_>) -> Element<'_, Messa
     let header = applet::padded_control(
         row![
             widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
+                .class(cosmic::theme::Button::Link)
                 .on_press(Message::CloseMediaView),
-            text::heading(format!("{} - {}", fl!("media"), device_name)),
+            text::heading(format!("{} - {}", fl!("media"), device_name))
+                .class(cosmic::theme::Text::Accent),
             widget::horizontal_space(),
         ]
         .spacing(sp.space_xxs)
