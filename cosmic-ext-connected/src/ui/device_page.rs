@@ -4,6 +4,7 @@
 
 use crate::app::{DeviceInfo, Message};
 use crate::fl;
+use crate::views::helpers::get_device_icon_name;
 use cosmic::applet;
 use cosmic::iced::widget::{column, row, tooltip};
 use cosmic::iced::{Alignment, Length};
@@ -16,13 +17,7 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
     let sp = cosmic::theme::spacing();
 
     // Device icon based on type
-    let icon_name = match device.device_type.as_str() {
-        "phone" | "smartphone" => "phone-symbolic",
-        "tablet" => "tablet-symbolic",
-        "desktop" => "computer-symbolic",
-        "laptop" => "computer-laptop-symbolic",
-        _ => "device-symbolic",
-    };
+    let icon_name = get_device_icon_name(device.device_type.as_str());
 
     // Device info row with back button, icon, name, type, and optional ping button
     let device_info: Element<Message> = {

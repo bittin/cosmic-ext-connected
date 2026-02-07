@@ -21,6 +21,12 @@ Thumbs.db
 .env
 .env.local
 
+# Flatpak build artifacts
+/build-dir/
+/repo/
+/.flatpak-builder/
+/cargo-sources.json
+
 # Debug
 *.log
 

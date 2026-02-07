@@ -3,6 +3,7 @@
 use crate::app::{DeviceInfo, Message};
 use crate::config::Config;
 use crate::fl;
+use crate::views::helpers::get_device_icon_name;
 use cosmic::applet;
 use cosmic::iced::advanced::widget::text::Style as TextStyle;
 use cosmic::iced::widget::{column, row};
@@ -82,13 +83,7 @@ pub fn view<'a>(
 fn device_row<'a>(device: &'a DeviceInfo, config: &'a Config) -> Element<'a, Message> {
     let sp = cosmic::theme::spacing();
 
-    let icon_name = match device.device_type.as_str() {
-        "phone" | "smartphone" => "phone-symbolic",
-        "tablet" => "tablet-symbolic",
-        "desktop" => "computer-symbolic",
-        "laptop" => "computer-laptop-symbolic",
-        _ => "device-symbolic",
-    };
+    let icon_name = get_device_icon_name(device.device_type.as_str());
 
     let (status_text, is_offline) = match (
         device.is_reachable,

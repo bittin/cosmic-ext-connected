@@ -70,6 +70,17 @@ pub fn popup_container<'a, Message: 'a + 'static>(
     .into()
 }
 
+/// Get the appropriate device icon name based on device type.
+pub fn get_device_icon_name(device_type: &str) -> &'static str {
+    match device_type {
+        "phone" | "smartphone" => "phone-symbolic",
+        "tablet" => "tablet-symbolic",
+        "desktop" => "computer-symbolic",
+        "laptop" => "computer-laptop-symbolic",
+        _ => "device-symbolic",
+    }
+}
+
 /// Format a Unix timestamp as a human-readable date/time string.
 pub fn format_timestamp(timestamp: i64) -> String {
     use chrono::{Local, TimeZone};

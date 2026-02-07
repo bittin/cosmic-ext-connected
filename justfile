@@ -8,7 +8,10 @@ sharedir := prefix / 'share'
 
 # Applet metadata
 applet_name := 'cosmic-ext-connected'
-desktop_file := 'io.github.nwxnw.connected.desktop'
+app_id := 'io.github.nwxnw.cosmic-ext-connected'
+desktop_file := app_id + '.desktop'
+metainfo_file := app_id + '.metainfo.xml'
+icon_file := app_id + '.svg'
 
 # Default recipe - show available commands
 default:
@@ -43,6 +46,8 @@ install: build-release install-only
 install-only:
     install -Dm755 target/release/{{applet_name}} {{bindir}}/{{applet_name}}
     install -Dm644 data/{{desktop_file}} {{sharedir}}/applications/{{desktop_file}}
+    install -Dm644 data/{{metainfo_file}} {{sharedir}}/metainfo/{{metainfo_file}}
+    install -Dm644 data/icons/hicolor/scalable/apps/{{icon_file}} {{sharedir}}/icons/hicolor/scalable/apps/{{icon_file}}
     @echo "Installed {{applet_name}} to {{bindir}}"
     @echo "Installed {{desktop_file}} to {{sharedir}}/applications"
     @echo ""
@@ -56,6 +61,8 @@ install-only:
 uninstall:
     rm -f {{bindir}}/{{applet_name}}
     rm -f {{sharedir}}/applications/{{desktop_file}}
+    rm -f {{sharedir}}/metainfo/{{metainfo_file}}
+    rm -f {{sharedir}}/icons/hicolor/scalable/apps/{{icon_file}}
     @echo "Uninstalled {{applet_name}}"
     @echo "Restart cosmic-panel to remove from panel: killall cosmic-panel"
 

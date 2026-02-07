@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Placeholder icon - replace with final design -->
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- Phone body -->
+  <rect x="36" y="8" width="56" height="112" rx="8" ry="8" fill="none" stroke="currentColor" stroke-width="4"/>
+  <!-- Screen -->
+  <rect x="42" y="24" width="44" height="72" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="2"/>
+  <!-- Home button -->
+  <circle cx="64" cy="108" r="5" fill="none" stroke="currentColor" stroke-width="2"/>
+  <!-- Connection waves -->
+  <path d="M96 40 Q108 48 108 64 Q108 80 96 88" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+  <path d="M102 48 Q112 56 112 64 Q112 72 102 80" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+</svg>
