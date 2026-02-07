@@ -41,6 +41,13 @@ just uninstall                           # Uninstall
 
 **Development cycle:** `cargo build --release && sudo just install && killall cosmic-panel`
 
+**Flatpak build:**
+```bash
+flatpak-builder --user --install --force-clean build-dir io.github.nwxnw.cosmic-ext-connected.json
+gtk-update-icon-cache -f ~/.local/share/flatpak/exports/share/icons/hicolor/  # Force icon cache refresh
+killall cosmic-panel                     # Reload panel
+```
+
 **Debug logs:** `journalctl --user -f | grep cosmic-ext-connected`
 
 ## Project Structure
@@ -60,6 +67,16 @@ cosmic-ext-connected/
 │   │   └── views.rs                      # SMS conversation list and thread views
 │   ├── media/              # Media player controls
 │   └── views/              # Shared UI components
+│
+├── data/
+│   ├── io.github.nwxnw.cosmic-ext-connected.desktop
+│   ├── io.github.nwxnw.cosmic-ext-connected.metainfo.xml
+│   └── icons/hicolor/scalable/apps/
+│       ├── io.github.nwxnw.cosmic-ext-connected.svg          # App icon (128x128, #BEBEBE fill)
+│       ├── cosmic-ext-connected-symbolic.svg                  # Panel: connected state
+│       └── cosmic-ext-connected-disconnected-symbolic.svg     # Panel: disconnected state
+│
+├── io.github.nwxnw.cosmic-ext-connected.json  # Flatpak manifest
 │
 ├── kdeconnect-dbus/src/
 │   ├── daemon.rs           # org.kde.kdeconnect.daemon proxy
@@ -97,6 +114,24 @@ fn is_charging(&self) -> zbus::Result<bool>;
 - `ConnectApplet` struct stays in `app.rs` - centralized state
 - View functions take params structs, return `Element<Message>`
 - Async functions are standalone, return `Message` variants
+
+### Icons
+- **Panel icons** use `fill="currentColor"` (symbolic) so COSMIC themes them automatically
+- **App icon** uses hardcoded `fill="#BEBEBE"` because COSMIC Settings does not theme non-symbolic app icons
+- Device icon everywhere is `"cosmic-ext-connected-symbolic"` (our custom mobile phone icon)
+- Panel connected state: `"cosmic-ext-connected-symbolic"`, disconnected: `"cosmic-ext-connected-disconnected-symbolic"`
+- Disconnected icon follows Pop convention: main element at `opacity="0.35"`, X indicator at full opacity
+
+### UI Theming
+- Back navigation buttons use `cosmic::theme::Button::Link` (accent-colored icon and text, no background)
+- Headings adjacent to back buttons use `cosmic::theme::Text::Accent`
+- To accent-color an icon widget, convert `Named` to `Icon` first, then apply `Svg::custom`:
+  ```rust
+  icon::from_name("icon-name").size(48).icon()
+      .class(theme::Svg::custom(|theme| svg::Style {
+          color: Some(theme.cosmic().accent_text_color().into()),
+      }))
+  ```
 
 ### Code Style
 - Follow rustfmt and clippy
