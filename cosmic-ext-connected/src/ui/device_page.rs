@@ -15,10 +15,6 @@ use kdeconnect_dbus::plugins::NotificationInfo;
 pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Element<'a, Message> {
     let sp = cosmic::theme::spacing();
 
-    // Back button
-    let back_btn = widget::button::icon(icon::from_name("go-previous-symbolic"))
-        .on_press(Message::BackToList);
-
     // Device icon based on type
     let icon_name = match device.device_type.as_str() {
         "phone" | "smartphone" => "phone-symbolic",
@@ -28,12 +24,13 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         _ => "device-symbolic",
     };
 
-    // Back button on its own row
-    let nav_header = applet::padded_control(back_btn);
-
-    // Device info row with icon, name, type, and optional ping button
+    // Device info row with back button, icon, name, type, and optional ping button
     let device_info: Element<Message> = {
+        let back_btn = widget::button::icon(icon::from_name("go-previous-symbolic"))
+            .on_press(Message::BackToList);
+
         let mut info_row = row![
+            back_btn,
             icon::from_name(icon_name).size(48),
             column![
                 text::title4(device.name.clone()),
@@ -160,7 +157,7 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
     let divider = || applet::padded_control(widget::divider::horizontal::default());
 
     let mut content =
-        column![nav_header, status_bar, device_info, status_row, divider(), actions,]
+        column![status_bar, device_info, status_row, divider(), actions,]
             .spacing(sp.space_xs)
             .padding([0, sp.space_s as u16, sp.space_s as u16, sp.space_s as u16]);
 
