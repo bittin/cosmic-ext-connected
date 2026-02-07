@@ -183,7 +183,8 @@ pub fn view_notification_settings(config: &Config) -> Element<'_, Message> {
         header.into(),
         sections.into(),
     ])
-    .spacing(sp.space_xxs);
+    .spacing(sp.space_xxs)
+    .padding([0, sp.space_s as u16, sp.space_s as u16, sp.space_s as u16]);
 
     widget::container(widget::scrollable(content))
         .width(Length::Fill)

@@ -158,7 +158,8 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
     let divider = || applet::padded_control(widget::divider::horizontal::default());
 
     let mut content = column![header, status_bar, status_row, divider(), actions,]
-        .spacing(sp.space_xs);
+        .spacing(sp.space_xs)
+        .padding([0, sp.space_s as u16, sp.space_s as u16, sp.space_s as u16]);
 
     content = content.push(divider());
     content = content.push(pairing_section);
