@@ -107,13 +107,17 @@ pub fn view_send_to(params: SendToParams<'_>) -> Element<'_, Message> {
         widget::Space::new(Length::Shrink, Length::Shrink).into()
     };
 
+    let divider = || applet::padded_control(widget::divider::horizontal::default());
+
     widget::container(
         column![
             header,
             status_bar,
+            divider(),
             share_file_item,
             send_clipboard_item,
             send_ping_item,
+            divider(),
             applet::padded_control(
                 column![
                     share_text_heading,
@@ -123,8 +127,8 @@ pub fn view_send_to(params: SendToParams<'_>) -> Element<'_, Message> {
                 .spacing(sp.space_xxs),
             ),
         ]
-        .spacing(sp.space_xs)
-        .padding(sp.space_s),
+        .spacing(sp.space_xxxs)
+        .padding([0, sp.space_s as u16, sp.space_s as u16, sp.space_s as u16]),
     )
     .into()
 }

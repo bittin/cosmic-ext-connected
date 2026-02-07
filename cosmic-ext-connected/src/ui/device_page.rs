@@ -28,10 +28,12 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         _ => "device-symbolic",
     };
 
-    // Build header row with device info and optional ping button
-    let header: Element<Message> = {
-        let mut header_row = row![
-            back_btn,
+    // Back button on its own row
+    let nav_header = applet::padded_control(back_btn);
+
+    // Device info row with icon, name, type, and optional ping button
+    let device_info: Element<Message> = {
+        let mut info_row = row![
             icon::from_name(icon_name).size(48),
             column![
                 text::title4(device.name.clone()),
@@ -57,10 +59,10 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
             )
             .gap(sp.space_xxxs)
             .padding(sp.space_xxs);
-            header_row = header_row.push(ping_with_tooltip);
+            info_row = info_row.push(ping_with_tooltip);
         }
 
-        applet::padded_control(header_row).into()
+        applet::padded_control(info_row).into()
     };
 
     // Build the combined status row with connected, paired, and battery
@@ -157,9 +159,10 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
 
     let divider = || applet::padded_control(widget::divider::horizontal::default());
 
-    let mut content = column![header, status_bar, status_row, divider(), actions,]
-        .spacing(sp.space_xs)
-        .padding([0, sp.space_s as u16, sp.space_s as u16, sp.space_s as u16]);
+    let mut content =
+        column![nav_header, status_bar, device_info, status_row, divider(), actions,]
+            .spacing(sp.space_xs)
+            .padding([0, sp.space_s as u16, sp.space_s as u16, sp.space_s as u16]);
 
     content = content.push(divider());
     content = content.push(pairing_section);
