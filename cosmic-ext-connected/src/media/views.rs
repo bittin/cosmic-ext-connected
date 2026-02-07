@@ -92,23 +92,22 @@ pub fn view_media_player(info: &MediaInfo) -> Element<'_, Message> {
 
     // Player selector (if multiple players)
     let player_selector: Element<Message> = if info.players.len() > 1 {
-        let players: Vec<String> = info.players.clone();
         // Find selected index, defaulting to first player if current_player is empty or not found
         let selected_idx = if info.current_player.is_empty() {
             Some(0)
         } else {
-            players
+            info.players
                 .iter()
                 .position(|p| p == &info.current_player)
                 .or(Some(0))
         };
-        let players_for_dropdown: Vec<String> = players.clone();
+        let players_for_closure: Vec<String> = info.players.clone();
 
         applet::padded_control(
             row![
                 text::caption(fl!("player")),
-                widget::dropdown(players, selected_idx, move |idx| {
-                    Message::MediaSelectPlayer(players_for_dropdown[idx].clone())
+                widget::dropdown(&info.players[..], selected_idx, move |idx| {
+                    Message::MediaSelectPlayer(players_for_closure[idx].clone())
                 })
                 .width(Length::Fill),
             ]

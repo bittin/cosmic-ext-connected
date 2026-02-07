@@ -124,7 +124,7 @@ pub fn view_send_to(params: SendToParams<'_>) -> Element<'_, Message> {
                     share_text_input,
                     send_text_btn,
                 ]
-                .spacing(sp.space_xxs),
+                .spacing(sp.space_xs),
             ),
         ]
         .spacing(sp.space_xxxs)

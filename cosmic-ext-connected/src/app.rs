@@ -117,6 +117,8 @@ pub enum Message {
     RejectPairing(String),
     /// Pairing operation completed
     PairingResult(Result<String, String>),
+    /// Clear the transient status message after a delay
+    ClearStatusMessage,
     /// D-Bus signal received indicating device state changed
     DbusSignalReceived,
 
@@ -516,6 +518,17 @@ impl ConnectApplet {
         matches!(self.sms_loading_state, SmsLoadingState::LoadingMoreMessages)
     }
 
+    /// Set a transient status message that auto-clears after 3 seconds.
+    fn set_transient_status(&mut self, msg: String) -> cosmic::app::Task<Message> {
+        self.status_message = Some(msg);
+        cosmic::app::Task::perform(
+            async {
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            },
+            |_| cosmic::Action::App(Message::ClearStatusMessage),
+        )
+    }
+
     /// Find the latest conversation timestamp for a phone number.
     /// Uses suffix matching (last 10 digits) to handle format variations.
     fn find_conversation_timestamp(&self, phone: &str) -> Option<i64> {
@@ -736,6 +749,9 @@ impl Application for ConnectApplet {
                 self.error = Some(err);
                 self.loading = false;
             }
+            Message::ClearStatusMessage => {
+                self.status_message = None;
+            }
 
             // Navigation
             Message::SelectDevice(device_id) => {
@@ -772,11 +788,11 @@ impl Application for ConnectApplet {
             Message::PingComplete(result) => match result {
                 Ok(()) => {
                     tracing::info!("Ping sent successfully");
-                    self.status_message = Some("Ping sent!".to_string());
+                    return self.set_transient_status("Ping sent!".to_string());
                 }
                 Err(e) => {
                     tracing::error!("Ping failed: {}", e);
-                    self.status_message = Some(format!("Ping failed: {}", e));
+                    return self.set_transient_status(format!("Ping failed: {}", e));
                 }
             },
 
@@ -793,11 +809,12 @@ impl Application for ConnectApplet {
             Message::FindMyPhoneComplete(result) => match result {
                 Ok(()) => {
                     tracing::info!("Find my phone triggered successfully");
-                    self.status_message = Some(fl!("phone-ringing"));
+                    return self.set_transient_status(fl!("phone-ringing"));
                 }
                 Err(e) => {
                     tracing::error!("Find my phone failed: {}", e);
-                    self.status_message = Some(format!("{}: {}", fl!("find-phone-failed"), e));
+                    return self
+                        .set_transient_status(format!("{}: {}", fl!("find-phone-failed"), e));
                 }
             },
 
@@ -843,11 +860,11 @@ impl Application for ConnectApplet {
             Message::ShareComplete(result) => match result {
                 Ok(()) => {
                     tracing::info!("Share completed successfully");
-                    self.status_message = Some("Shared successfully!".to_string());
+                    return self.set_transient_status("Shared successfully!".to_string());
                 }
                 Err(e) => {
                     tracing::error!("Share failed: {}", e);
-                    self.status_message = Some(format!("Share failed: {}", e));
+                    return self.set_transient_status(format!("Share failed: {}", e));
                 }
             },
             Message::ConfigChanged(config) => {
@@ -980,11 +997,11 @@ impl Application for ConnectApplet {
             Message::ClipboardResult(result) => match &result {
                 Ok(msg) => {
                     tracing::info!("Clipboard result: {}", msg);
-                    self.status_message = Some(msg.clone());
+                    return self.set_transient_status(msg.clone());
                 }
                 Err(err) => {
                     tracing::error!("Clipboard error: {}", err);
-                    self.status_message = Some(format!("Clipboard error: {}", err));
+                    return self.set_transient_status(format!("Clipboard error: {}", err));
                 }
             },
 
@@ -1781,10 +1798,10 @@ impl Application for ConnectApplet {
 
             Message::SmsError(err) => {
                 tracing::error!("SMS error: {}", err);
-                self.status_message = Some(format!("SMS error: {}", err));
                 self.sms_loading_state = SmsLoadingState::Idle;
                 // Also clear subscription state on error
                 self.conversation_load_active = false;
+                return self.set_transient_status(format!("SMS error: {}", err));
             }
             Message::SmsComposeInput(text) => {
                 self.sms_compose_text = text;
@@ -1896,17 +1913,27 @@ impl Application for ConnectApplet {
                                     widget::Id::new("message-thread"),
                                     scrollable::RelativeOffset::END,
                                 ),
+                                cosmic::app::Task::perform(
+                                    async {
+                                        tokio::time::sleep(std::time::Duration::from_secs(3))
+                                            .await;
+                                    },
+                                    |_| cosmic::Action::App(Message::ClearStatusMessage),
+                                ),
                             ]);
                         }
                     }
                     Err(err) => {
                         tracing::error!("SMS send error: {}", err);
                         if was_group {
-                            self.status_message =
-                                Some(format!("{}: {}", fl!("group-sms-send-failed"), err));
+                            return self.set_transient_status(format!(
+                                "{}: {}",
+                                fl!("group-sms-send-failed"),
+                                err
+                            ));
                         } else {
-                            self.status_message =
-                                Some(format!("{}: {}", fl!("sms-failed"), err));
+                            return self
+                                .set_transient_status(format!("{}: {}", fl!("sms-failed"), err));
                         }
                     }
                 }
@@ -2008,7 +2035,7 @@ impl Application for ConnectApplet {
                     }
                     Err(err) => {
                         tracing::error!("New message send error: {}", err);
-                        self.status_message = Some(format!("Send failed: {}", err));
+                        return self.set_transient_status(format!("Send failed: {}", err));
                     }
                 }
             }
@@ -2147,18 +2174,24 @@ impl Application for ConnectApplet {
                 }
             }
             Message::MediaActionResult(result) => {
-                if let Err(err) = result {
-                    self.status_message = Some(format!("Media error: {}", err));
-                }
+                let clear_task = if let Err(err) = result {
+                    self.set_transient_status(format!("Media error: {}", err))
+                } else {
+                    cosmic::app::Task::none()
+                };
                 // Refresh media info after action
                 if let (Some(conn), Some(device_id)) =
                     (&self.dbus_connection, &self.media_device_id)
                 {
-                    return cosmic::app::Task::perform(
-                        fetch_media_info_async(conn.clone(), device_id.clone()),
-                        cosmic::Action::App,
-                    );
+                    return cosmic::app::Task::batch(vec![
+                        cosmic::app::Task::perform(
+                            fetch_media_info_async(conn.clone(), device_id.clone()),
+                            cosmic::Action::App,
+                        ),
+                        clear_task,
+                    ]);
                 }
+                return clear_task;
             }
             Message::MediaRefresh => {
                 // Auto-refresh when in media view
