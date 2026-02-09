@@ -174,6 +174,13 @@ We fire both: SMS plugin first (cache priming), then Conversations interface (pe
 
 The `phone_deadline` must be stored in the `Listening` state struct (not a local variable) because each `unfold` yield exits and re-enters the function.
 
+### Conversation list loading uses deadline-based subscription
+`conversation_list_subscription` in `conversation_subscription.rs` uses a state machine (`Init` → `EmittingCached` → `Listening` → `Done`) with deadline-based timeouts:
+- **`phone_deadline`** — absolute `Instant` for how long to wait for the phone to start responding. 8s on cold start (no cache), 3s on warm start (has cache). Only checked when no live signals have arrived yet.
+- **`activity_deadline`** — `Option<Instant>`, initially `None`. Set/reset to `now + 3s` on each live D-Bus signal (`conversationCreated`, `conversationUpdated`, `conversationLoaded`). Once set, `phone_deadline` is no longer checked.
+
+Cached conversations from `activeConversations()` are emitted immediately via `EmittingCached` for instant UI display, but they do **not** arm the activity timeout. This prevents the subscription from dying before the phone responds (network RTT is 1-5s).
+
 ### COSMIC's notification daemon ignores `expire_timeout`
 COSMIC's notification daemon does not respect the `expire_timeout` hint from the freedesktop notification spec. All notifications display for the daemon's fixed duration regardless of the value passed. To implement user-configurable notification duration, notifications must be created with `Timeout::Never` (expire_timeout=0) to prevent the daemon from auto-closing them, then explicitly closed via `NotificationHandle::close()` after the configured timeout. This is handled by `show_and_auto_close()` in `app.rs`.
 
