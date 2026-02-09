@@ -46,6 +46,16 @@ pub mod sms {
     /// Needed because the local store may be empty/sparse after a reboot.
     pub const PHONE_RESPONSE_TIMEOUT_MS: u64 = 8000;
 
+    /// How long to wait for the phone to start responding with conversation
+    /// list signals on cold start when no cache exists (milliseconds).
+    pub const CONVERSATION_LIST_PHONE_WAIT_MS: u64 = 8000;
+
+    /// Activity timeout for conversation list sync (milliseconds).
+    /// After the first live signal, if no new signals arrive within this
+    /// duration, sync is complete. Longer than SIGNAL_ACTIVITY_TIMEOUT_MS
+    /// (500ms) because conversation list signals arrive with larger gaps.
+    pub const CONVERSATION_LIST_ACTIVITY_TIMEOUT_MS: u64 = 3000;
+
     /// Interval for polling in fallback mode (milliseconds).
     pub const FALLBACK_POLLING_INTERVAL_MS: u64 = 500;
 
