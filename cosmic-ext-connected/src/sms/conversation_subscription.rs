@@ -6,9 +6,14 @@
 
 use crate::app::Message;
 use crate::constants::dbus::RETRY_DELAY_SECS;
-use crate::constants::sms::{SIGNAL_ACTIVITY_TIMEOUT_MS, TIMEOUT_CHECK_INTERVAL_MS};
+use crate::constants::sms::{
+    CONVERSATION_LIST_ACTIVITY_TIMEOUT_MS, CONVERSATION_LIST_PHONE_WAIT_MS,
+    CONVERSATION_TIMEOUT_CACHED_SECS,
+};
 use futures_util::StreamExt;
-use kdeconnect_dbus::plugins::{parse_sms_message, ConversationSummary, ConversationsProxy, SmsProxy};
+use kdeconnect_dbus::plugins::{
+    parse_sms_message, ConversationSummary, ConversationsProxy, SmsProxy,
+};
 use zbus::Connection;
 
 /// Overall timeout for conversation list sync (seconds).
@@ -34,9 +39,15 @@ enum ConversationListState {
         stream: zbus::MessageStream,
         device_id: String,
         start_time: tokio::time::Instant,
-        last_activity: tokio::time::Instant,
-        received_any_data: bool,
+        /// Absolute deadline for how long to wait for the phone to start responding.
+        /// Checked only when `activity_deadline` is `None` (no live signals yet).
+        phone_deadline: tokio::time::Instant,
+        /// Set/reset to `now + activity_timeout` on each live D-Bus signal.
+        /// Once set, `phone_deadline` is no longer checked.
+        activity_deadline: Option<tokio::time::Instant>,
     },
+    /// Terminal state — stream is finished.
+    Done,
 }
 
 /// Create a stream that listens for conversation list updates via D-Bus signals.
@@ -94,7 +105,10 @@ pub fn conversation_list_subscription(
 
                     if let Ok(rule) = created_rule {
                         if let Err(e) = dbus_proxy.add_match_rule(rule).await {
-                            tracing::warn!("Failed to add conversationCreated match rule: {}", e);
+                            tracing::warn!(
+                                "Failed to add conversationCreated match rule: {}",
+                                e
+                            );
                         } else {
                             tracing::debug!("Added match rule for conversationCreated signals");
                         }
@@ -109,7 +123,10 @@ pub fn conversation_list_subscription(
 
                     if let Ok(rule) = updated_rule {
                         if let Err(e) = dbus_proxy.add_match_rule(rule).await {
-                            tracing::warn!("Failed to add conversationUpdated match rule: {}", e);
+                            tracing::warn!(
+                                "Failed to add conversationUpdated match rule: {}",
+                                e
+                            );
                         } else {
                             tracing::debug!("Added match rule for conversationUpdated signals");
                         }
@@ -124,7 +141,10 @@ pub fn conversation_list_subscription(
 
                     if let Ok(rule) = loaded_rule {
                         if let Err(e) = dbus_proxy.add_match_rule(rule).await {
-                            tracing::warn!("Failed to add conversationLoaded match rule: {}", e);
+                            tracing::warn!(
+                                "Failed to add conversationLoaded match rule: {}",
+                                e
+                            );
                         } else {
                             tracing::debug!("Added match rule for conversationLoaded signals");
                         }
@@ -172,10 +192,14 @@ pub fn conversation_list_subscription(
                                 }
                             }
                             // Sort by timestamp (newest first) and deduplicate
-                            initial_conversations.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+                            initial_conversations
+                                .sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
                             let mut seen = std::collections::HashSet::new();
                             initial_conversations.retain(|c| seen.insert(c.thread_id));
-                            tracing::info!("Parsed {} unique cached conversations", initial_conversations.len());
+                            tracing::info!(
+                                "Parsed {} unique cached conversations",
+                                initial_conversations.len()
+                            );
                         }
                     }
 
@@ -202,7 +226,10 @@ pub fn conversation_list_subscription(
                         Some(fut) => match fut.await {
                             Ok(sms_proxy) => {
                                 if let Err(e) = sms_proxy.request_all_conversations().await {
-                                    tracing::warn!("SMS plugin requestAllConversations failed (non-fatal): {}", e);
+                                    tracing::warn!(
+                                        "SMS plugin requestAllConversations failed (non-fatal): {}",
+                                        e
+                                    );
                                 } else {
                                     tracing::debug!(
                                         "SMS plugin requestAllConversations fired for device {} (cache priming)",
@@ -211,7 +238,10 @@ pub fn conversation_list_subscription(
                                 }
                             }
                             Err(e) => {
-                                tracing::warn!("Failed to create SMS proxy (non-fatal): {}", e);
+                                tracing::warn!(
+                                    "Failed to create SMS proxy (non-fatal): {}",
+                                    e
+                                );
                             }
                         },
                         None => {
@@ -221,7 +251,10 @@ pub fn conversation_list_subscription(
 
                     // Conversations interface request (local store signals)
                     if let Some(ref proxy) = conversations_proxy {
-                        tracing::info!("Firing requestAllConversationThreads for device {}", device_id);
+                        tracing::info!(
+                            "Firing requestAllConversationThreads for device {}",
+                            device_id
+                        );
                         if let Err(e) = proxy.request_all_conversation_threads().await {
                             tracing::warn!("Failed to request conversation threads: {}", e);
                         }
@@ -254,16 +287,20 @@ pub fn conversation_list_subscription(
                         ));
                     }
 
-                    // No cached data - emit sync started and go to listening
+                    // No cached data — use longer phone wait (cold start)
+                    let phone_deadline = now
+                        + tokio::time::Duration::from_millis(CONVERSATION_LIST_PHONE_WAIT_MS);
                     Some((
-                        Message::ConversationSyncStarted { device_id: device_id.clone() },
+                        Message::ConversationSyncStarted {
+                            device_id: device_id.clone(),
+                        },
                         ConversationListState::Listening {
                             conn,
                             stream,
                             device_id,
                             start_time: now,
-                            last_activity: now,
-                            received_any_data: false,
+                            phone_deadline,
+                            activity_deadline: None,
                         },
                     ))
                 }
@@ -297,21 +334,26 @@ pub fn conversation_list_subscription(
                         ));
                     }
 
-                    // All cached conversations emitted, transition to listening for signals
+                    // All cached conversations emitted, transition to listening for signals.
+                    // Use shorter phone wait since we have cache (warm start).
                     tracing::debug!(
                         "Finished emitting cached conversations, now listening for signals for device {}",
                         device_id
                     );
                     let now = tokio::time::Instant::now();
+                    let phone_deadline = now
+                        + tokio::time::Duration::from_secs(CONVERSATION_TIMEOUT_CACHED_SECS);
                     Some((
-                        Message::ConversationSyncStarted { device_id: device_id.clone() },
+                        Message::ConversationSyncStarted {
+                            device_id: device_id.clone(),
+                        },
                         ConversationListState::Listening {
                             conn,
                             stream,
                             device_id,
                             start_time,
-                            last_activity: now,
-                            received_any_data: true, // We received cached data
+                            phone_deadline,
+                            activity_deadline: None,
                         },
                     ))
                 }
@@ -320,17 +362,70 @@ pub fn conversation_list_subscription(
                     mut stream,
                     device_id,
                     start_time,
-                    mut last_activity,
-                    mut received_any_data,
+                    phone_deadline,
+                    mut activity_deadline,
                 } => {
-                    let overall_timeout =
-                        tokio::time::Duration::from_secs(CONVERSATION_LIST_TIMEOUT_SECS);
-                    let activity_timeout =
-                        tokio::time::Duration::from_millis(SIGNAL_ACTIVITY_TIMEOUT_MS);
-                    let check_interval =
-                        tokio::time::Duration::from_millis(TIMEOUT_CHECK_INTERVAL_MS);
+                    let hard_deadline = start_time
+                        + tokio::time::Duration::from_secs(CONVERSATION_LIST_TIMEOUT_SECS);
+                    let activity_timeout = tokio::time::Duration::from_millis(
+                        CONVERSATION_LIST_ACTIVITY_TIMEOUT_MS,
+                    );
 
                     loop {
+                        let now = tokio::time::Instant::now();
+
+                        // Pre-check deadlines (highest priority first)
+
+                        // 1. Hard deadline — safety net
+                        if now >= hard_deadline {
+                            tracing::info!(
+                                "Conversation list sync hard timeout after {:?} for device {}",
+                                start_time.elapsed(),
+                                device_id
+                            );
+                            return Some((
+                                Message::ConversationSyncComplete { device_id },
+                                ConversationListState::Done,
+                            ));
+                        }
+
+                        // 2. Activity deadline — live signals stopped arriving
+                        if let Some(ad) = activity_deadline {
+                            if now >= ad {
+                                tracing::info!(
+                                    "Conversation list sync complete (activity timeout) after {:?} for device {}",
+                                    start_time.elapsed(),
+                                    device_id
+                                );
+                                return Some((
+                                    Message::ConversationSyncComplete { device_id },
+                                    ConversationListState::Done,
+                                ));
+                            }
+                        }
+
+                        // 3. Phone deadline — phone never started responding
+                        //    Only checked when no live signals have been received yet.
+                        if activity_deadline.is_none() && now >= phone_deadline {
+                            tracing::info!(
+                                "Conversation list sync: phone never responded within {:?} for device {}",
+                                phone_deadline.duration_since(start_time),
+                                device_id
+                            );
+                            return Some((
+                                Message::ConversationSyncComplete { device_id },
+                                ConversationListState::Done,
+                            ));
+                        }
+
+                        // Compute the effective sleep deadline (earliest applicable)
+                        let effective_deadline = if let Some(ad) = activity_deadline {
+                            ad.min(hard_deadline)
+                        } else {
+                            phone_deadline.min(hard_deadline)
+                        };
+                        let sleep_duration = effective_deadline.saturating_duration_since(now);
+
                         tokio::select! {
                             biased;
 
@@ -358,8 +453,7 @@ pub fn conversation_list_subscription(
                                                 if iface_str == "org.kde.kdeconnect.device.conversations"
                                                     && member_str == "conversationCreated"
                                                 {
-                                                    last_activity = tokio::time::Instant::now();
-                                                    received_any_data = true;
+                                                    activity_deadline = Some(tokio::time::Instant::now() + activity_timeout);
                                                     let body = msg.body();
                                                     if let Ok(value) = body.deserialize::<zbus::zvariant::OwnedValue>() {
                                                         if let Some(sms_msg) = parse_sms_message(&value) {
@@ -385,8 +479,8 @@ pub fn conversation_list_subscription(
                                                                     stream,
                                                                     device_id,
                                                                     start_time,
-                                                                    last_activity,
-                                                                    received_any_data,
+                                                                    phone_deadline,
+                                                                    activity_deadline,
                                                                 },
                                                             ));
                                                         }
@@ -397,8 +491,7 @@ pub fn conversation_list_subscription(
                                                 if iface_str == "org.kde.kdeconnect.device.conversations"
                                                     && member_str == "conversationUpdated"
                                                 {
-                                                    last_activity = tokio::time::Instant::now();
-                                                    received_any_data = true;
+                                                    activity_deadline = Some(tokio::time::Instant::now() + activity_timeout);
                                                     let body = msg.body();
                                                     if let Ok(value) = body.deserialize::<zbus::zvariant::OwnedValue>() {
                                                         if let Some(sms_msg) = parse_sms_message(&value) {
@@ -424,8 +517,8 @@ pub fn conversation_list_subscription(
                                                                     stream,
                                                                     device_id,
                                                                     start_time,
-                                                                    last_activity,
-                                                                    received_any_data,
+                                                                    phone_deadline,
+                                                                    activity_deadline,
                                                                 },
                                                             ));
                                                         }
@@ -436,8 +529,7 @@ pub fn conversation_list_subscription(
                                                 if iface_str == "org.kde.kdeconnect.device.conversations"
                                                     && member_str == "conversationLoaded"
                                                 {
-                                                    last_activity = tokio::time::Instant::now();
-                                                    received_any_data = true;
+                                                    activity_deadline = Some(tokio::time::Instant::now() + activity_timeout);
                                                     tracing::debug!(
                                                         "conversationLoaded signal for device {}",
                                                         device_id
@@ -453,40 +545,14 @@ pub fn conversation_list_subscription(
                                 }
                             }
 
-                            // Periodic timeout check
-                            _ = tokio::time::sleep(check_interval) => {
-                                let elapsed = start_time.elapsed();
-                                let since_activity = last_activity.elapsed();
-
-                                // Hard timeout
-                                if elapsed >= overall_timeout {
-                                    tracing::info!(
-                                        "Conversation list sync timeout after {:?} for device {}",
-                                        elapsed,
-                                        device_id
-                                    );
-                                    return Some((
-                                        Message::ConversationSyncComplete { device_id },
-                                        ConversationListState::Init { device_id: String::new() }, // Done
-                                    ));
-                                }
-
-                                // Activity timeout - only if we received some data
-                                if received_any_data && since_activity >= activity_timeout {
-                                    tracing::info!(
-                                        "Conversation list sync complete (activity timeout) for device {}, received data: {}",
-                                        device_id,
-                                        received_any_data
-                                    );
-                                    return Some((
-                                        Message::ConversationSyncComplete { device_id },
-                                        ConversationListState::Init { device_id: String::new() }, // Done
-                                    ));
-                                }
+                            // Sleep until next deadline
+                            _ = tokio::time::sleep(sleep_duration) => {
+                                // Loop back to deadline checks at top
                             }
                         }
                     }
                 }
+                ConversationListState::Done => None,
             }
         },
     )
