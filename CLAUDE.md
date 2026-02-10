@@ -174,6 +174,9 @@ We fire both: SMS plugin first (cache priming), then Conversations interface (pe
 
 The `phone_deadline` must be stored in the `Listening` state struct (not a local variable) because each `unfold` yield exits and re-enters the function.
 
+### Scroll prefetch must wait for subscription to complete
+`MessageThreadScrolled` triggers `fetch_older_messages_async` when the user scrolls near the top. This fires a separate `requestConversation` which picks up D-Bus signals on the same session bus. If the initial message subscription is still running, the prefetch collects the **same signals** and `OlderMessagesLoaded` prepends duplicates. Guard: `!self.conversation_load_active` in the prefetch condition. Safety net: `OlderMessagesLoaded` filters `older_msgs` against `known_message_ids` before prepending.
+
 ### Conversation list loading uses deadline-based subscription
 `conversation_list_subscription` in `conversation_subscription.rs` uses a state machine (`Init` → `EmittingCached` → `Listening` → `Done`) with deadline-based timeouts:
 - **`phone_deadline`** — absolute `Instant` for how long to wait for the phone to start responding. 8s on cold start (no cache), 3s on warm start (has cache). Only checked when no live signals have arrived yet.
