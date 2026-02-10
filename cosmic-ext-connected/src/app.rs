@@ -1452,6 +1452,15 @@ impl Application for ConnectApplet {
                 }
 
                 if self.current_thread_id == Some(thread_id) {
+                    // Filter out messages already known (safety net for signal cross-talk)
+                    let older_msgs: Vec<_> = older_msgs
+                        .into_iter()
+                        .filter(|m| !self.known_message_ids.contains(&m.uid))
+                        .collect();
+                    for m in &older_msgs {
+                        self.known_message_ids.insert(m.uid);
+                    }
+
                     if !older_msgs.is_empty() {
                         let prepended_count = older_msgs.len();
                         tracing::info!(
@@ -1524,6 +1533,7 @@ impl Application for ConnectApplet {
                 if scroll_offset < PREFETCH_THRESHOLD_PX
                     && self.messages_has_more
                     && !self.is_loading_more_messages()
+                    && !self.conversation_load_active
                     && !self.messages.is_empty()
                 {
                     tracing::debug!(
