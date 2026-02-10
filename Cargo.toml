@@ -40,6 +40,9 @@ i18n-embed = { version = "0.15", features = ["fluent-system", "desktop-requester
 i18n-embed-fl = "0.9"
 rust-embed = "8"
 
+# Base64 decoding (MMS attachment thumbnails)
+base64 = "0.22"
+
 # Date/time
 chrono = "0.4"
 

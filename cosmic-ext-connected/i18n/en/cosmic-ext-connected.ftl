@@ -176,3 +176,8 @@ group-sms-warning = Message sent, but group replies may not be delivered. If it 
 pairing-accepted = Pairing accepted
 pairing-rejected = Pairing rejected
 unpaired = Unpaired from device
+
+# Attachments
+attachment = Attachment
+loading-attachment = Loading attachment...
+attachment-failed = Failed to load attachment

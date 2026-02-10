@@ -3,13 +3,17 @@
 use crate::app::{LoadingPhase, Message, SmsLoadingState};
 use crate::fl;
 use crate::views::helpers::{format_timestamp, WIDE_POPUP_WIDTH};
+use base64::Engine;
 use cosmic::applet;
+use cosmic::iced::advanced::image::Handle as ImageHandle;
 use cosmic::iced::widget::{column, row};
-use cosmic::iced::{Alignment, Length};
+use cosmic::iced::{Alignment, ContentFit, Length};
 use cosmic::widget::{self, text};
 use cosmic::Element;
 use kdeconnect_dbus::contacts::ContactLookup;
-use kdeconnect_dbus::plugins::{is_address_valid, ConversationSummary, MessageType, SmsMessage};
+use kdeconnect_dbus::plugins::{
+    is_address_valid, Attachment, ConversationSummary, MessageType, SmsMessage,
+};
 
 // --- Helper functions for loading state ---
 
@@ -48,6 +52,86 @@ fn is_loading_messages(state: &SmsLoadingState) -> bool {
 /// Check if loading more messages (pagination).
 fn is_loading_more(state: &SmsLoadingState) -> bool {
     matches!(state, SmsLoadingState::LoadingMoreMessages)
+}
+
+// --- Attachment helpers ---
+
+/// Determine the icon name for a MIME type.
+fn attachment_icon(mime: &str) -> &'static str {
+    if mime.starts_with("image/") {
+        "image-x-generic-symbolic"
+    } else if mime.starts_with("video/") {
+        "video-x-generic-symbolic"
+    } else if mime.starts_with("audio/") {
+        "audio-x-generic-symbolic"
+    } else {
+        "mail-attachment-symbolic"
+    }
+}
+
+/// Render a single attachment element within a message bubble.
+fn view_attachment<'a>(
+    attachment: &Attachment,
+    device_id: &str,
+    device_name: &str,
+) -> Element<'a, Message> {
+    let sp = cosmic::theme::spacing();
+
+    // For images with a base64 thumbnail, try to decode and display inline
+    if attachment.mime_type.starts_with("image/") && !attachment.base64_thumbnail.is_empty() {
+        if let Ok(decoded) = base64::engine::general_purpose::STANDARD
+            .decode(&attachment.base64_thumbnail)
+        {
+            let handle = ImageHandle::from_bytes(decoded);
+            let img = cosmic::iced::widget::image(handle)
+                .height(Length::Fixed(200.0))
+                .content_fit(ContentFit::Contain);
+
+            // Wrap in mouse_area for click-to-open
+            return widget::mouse_area(img)
+                .on_press(Message::OpenAttachment {
+                    device_id: device_id.to_string(),
+                    device_name: device_name.to_string(),
+                    part_id: attachment.part_id,
+                    unique_identifier: attachment.unique_identifier.clone(),
+                })
+                .into();
+        }
+    }
+
+    // Fallback: icon + MIME type label for non-image or failed decode
+    let icon_name = attachment_icon(&attachment.mime_type);
+    let label = if attachment.mime_type.starts_with("image/") {
+        fl!("attachment")
+    } else {
+        // Show short MIME subtype (e.g. "video/mp4" → "mp4")
+        attachment
+            .mime_type
+            .split('/')
+            .nth(1)
+            .unwrap_or(&attachment.mime_type)
+            .to_string()
+    };
+
+    let placeholder = row![
+        widget::icon::from_name(icon_name).size(24),
+        text::body(label),
+    ]
+    .spacing(sp.space_xxs)
+    .align_y(Alignment::Center);
+
+    widget::mouse_area(
+        widget::container(placeholder)
+            .padding([sp.space_xxs, sp.space_xs])
+            .class(cosmic::theme::Container::Card),
+    )
+    .on_press(Message::OpenAttachment {
+        device_id: device_id.to_string(),
+        device_name: device_name.to_string(),
+        part_id: attachment.part_id,
+        unique_identifier: attachment.unique_identifier.clone(),
+    })
+    .into()
 }
 
 // --- View params and functions ---
@@ -137,13 +221,38 @@ pub fn view_conversation_list(params: ConversationListParams<'_>) -> Element<'_,
             .take(params.conversations_displayed)
         {
             let display_name = params.contacts.get_group_display_name(&conv.addresses, 3);
-
-            let snippet = conv.last_message.chars().take(50).collect::<String>();
             let date_str = format_timestamp(conv.timestamp);
+
+            // Build snippet: show attachment indicator if needed
+            let snippet_element: Element<Message> = if conv.has_attachments
+                && conv.last_message.is_empty()
+            {
+                // MMS with only attachments (no text body)
+                row![
+                    widget::icon::from_name("mail-attachment-symbolic").size(14),
+                    text::caption(fl!("attachment")),
+                ]
+                .spacing(sp.space_xxxs)
+                .align_y(Alignment::Center)
+                .into()
+            } else if conv.has_attachments {
+                // MMS with both text and attachments
+                let snippet = conv.last_message.chars().take(50).collect::<String>();
+                row![
+                    widget::icon::from_name("mail-attachment-symbolic").size(14),
+                    text::caption(snippet),
+                ]
+                .spacing(sp.space_xxxs)
+                .align_y(Alignment::Center)
+                .into()
+            } else {
+                let snippet = conv.last_message.chars().take(50).collect::<String>();
+                text::caption(snippet).into()
+            };
 
             let conv_row = applet::menu_button(
                 row![
-                    column![text::body(display_name), text::caption(snippet),].spacing(2),
+                    column![text::body(display_name), snippet_element,].spacing(2),
                     widget::horizontal_space(),
                     text::caption(date_str),
                     widget::icon::from_name("go-next-symbolic").size(16),
@@ -203,6 +312,8 @@ pub fn view_conversation_list(params: ConversationListParams<'_>) -> Element<'_,
 
 /// Parameters for the message thread view.
 pub struct MessageThreadParams<'a> {
+    pub device_id: &'a str,
+    pub device_name: &'a str,
     pub thread_addresses: Option<&'a [String]>,
     pub messages: &'a [SmsMessage],
     pub contacts: &'a ContactLookup,
@@ -302,13 +413,23 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
             let is_pressed = params.pressed_bubble_uid == Some(msg.uid);
             let show_hint = is_pressed && params.show_copy_hint;
 
-            // Message bubble content (long-press to copy)
-            let bubble_content =
-                column![
+            // Message bubble content: attachments first, then text body
+            let mut bubble_content = column![].spacing(sp.space_xxxs);
+
+            // Render attachment thumbnails/placeholders
+            for att in &msg.attachments {
+                bubble_content =
+                    bubble_content.push(view_attachment(att, params.device_id, params.device_name));
+            }
+
+            // Add text body (skip if empty, e.g. image-only MMS)
+            if !msg.body.is_empty() {
+                bubble_content = bubble_content.push(
                     text::body(&msg.body).wrapping(cosmic::iced::widget::text::Wrapping::Word),
-                    text::caption(time_str),
-                ]
-                .spacing(sp.space_xxxs);
+                );
+            }
+
+            bubble_content = bubble_content.push(text::caption(time_str));
 
             // Use highlighted style when pressed for high contrast visual feedback
             let bubble: Element<Message> = if is_pressed {

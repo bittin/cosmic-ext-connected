@@ -21,6 +21,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 rfd.workspace = true
 chrono.workspace = true
+base64.workspace = true
 i18n-embed.workspace = true
 i18n-embed-fl.workspace = true
 rust-embed.workspace = true

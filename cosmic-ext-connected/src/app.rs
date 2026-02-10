@@ -18,9 +18,9 @@ use crate::media::{
 };
 use crate::sms::{
     conversation_list_subscription, fetch_conversations_async, fetch_messages_async,
-    fetch_older_messages_async, send_new_sms_async, send_sms_async, view_conversation_list,
-    view_message_thread, view_new_message, ConversationListParams, MessageThreadParams,
-    NewMessageParams,
+    fetch_older_messages_async, request_attachment_async, send_new_sms_async, send_sms_async,
+    view_conversation_list, view_message_thread, view_new_message, ConversationListParams,
+    MessageThreadParams, NewMessageParams,
 };
 use crate::subscriptions::{
     call_notification_subscription, conversation_message_subscription, dbus_signal_subscription,
@@ -199,6 +199,19 @@ pub enum Message {
     BubbleHintTimer,
     /// Long press timer completed (2s total elapsed) - copy to clipboard
     BubbleLongPressComplete,
+
+    // Attachments
+    /// Request and open a full-size MMS attachment
+    OpenAttachment {
+        device_id: String,
+        device_name: String,
+        part_id: i64,
+        unique_identifier: String,
+    },
+    /// Attachment file is ready to open
+    AttachmentReady(String),
+    /// Attachment retrieval failed
+    AttachmentError(String),
 
     // Media controls
     /// Open media controls for a device
@@ -2020,6 +2033,65 @@ impl Application for ConnectApplet {
                 }
             }
 
+            // Attachment messages
+            Message::OpenAttachment {
+                device_id,
+                device_name,
+                part_id,
+                unique_identifier,
+            } => {
+                // Check if KDE Connect has already cached this attachment
+                // KDE Connect daemon caches to ~/.cache/kdeconnect.daemon/<device-name>/
+                let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+                let cache_dir = std::path::PathBuf::from(home)
+                    .join(".cache/kdeconnect.daemon")
+                    .join(&device_name);
+                let cached_path = cache_dir.join(&unique_identifier);
+
+                if cached_path.exists() {
+                    // Already cached — open immediately
+                    let path_str = cached_path.to_string_lossy().to_string();
+                    return cosmic::app::Task::perform(
+                        async move {
+                            let _ = tokio::process::Command::new("xdg-open")
+                                .arg(&path_str)
+                                .spawn();
+                        },
+                        |_| cosmic::Action::App(Message::ClearStatusMessage),
+                    );
+                }
+
+                // Not cached — request from phone via D-Bus
+                if let Some(conn) = &self.dbus_connection {
+                    self.status_message = Some(fl!("loading-attachment"));
+                    return cosmic::app::Task::perform(
+                        request_attachment_async(
+                            conn.clone(),
+                            device_id,
+                            device_name,
+                            part_id,
+                            unique_identifier,
+                        ),
+                        cosmic::Action::App,
+                    );
+                }
+            }
+            Message::AttachmentReady(file_path) => {
+                self.status_message = None;
+                return cosmic::app::Task::perform(
+                    async move {
+                        let _ = tokio::process::Command::new("xdg-open")
+                            .arg(&file_path)
+                            .spawn();
+                    },
+                    |_| cosmic::Action::App(Message::ClearStatusMessage),
+                );
+            }
+            Message::AttachmentError(err) => {
+                tracing::error!("Attachment error: {}", err);
+                return self.set_transient_status(fl!("attachment-failed"));
+            }
+
             // Media control messages
             Message::OpenMediaView(device_id) => {
                 // Find device name for header
@@ -2449,6 +2521,8 @@ impl Application for ConnectApplet {
                 sync_active: self.conversation_sync_active,
             }),
             ViewMode::MessageThread => view_message_thread(MessageThreadParams {
+                device_id: self.sms_device_id.as_deref().unwrap_or(""),
+                device_name: self.sms_device_name.as_deref().unwrap_or(""),
                 thread_addresses: self.current_thread_addresses.as_deref(),
                 messages: &self.messages,
                 contacts: &self.contacts,

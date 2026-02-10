@@ -182,12 +182,14 @@ pub fn conversation_list_subscription(
                             tracing::info!("Got {} cached conversation values", cached.len());
                             for value in &cached {
                                 if let Some(sms_msg) = parse_sms_message(value) {
+                                    let has_attachments = !sms_msg.attachments.is_empty();
                                     initial_conversations.push(ConversationSummary {
                                         thread_id: sms_msg.thread_id,
                                         addresses: sms_msg.addresses,
                                         last_message: sms_msg.body,
                                         timestamp: sms_msg.date,
                                         unread: !sms_msg.read,
+                                        has_attachments,
                                     });
                                 }
                             }
@@ -457,12 +459,14 @@ pub fn conversation_list_subscription(
                                                     let body = msg.body();
                                                     if let Ok(value) = body.deserialize::<zbus::zvariant::OwnedValue>() {
                                                         if let Some(sms_msg) = parse_sms_message(&value) {
+                                                            let has_attachments = !sms_msg.attachments.is_empty();
                                                             let conversation = ConversationSummary {
                                                                 thread_id: sms_msg.thread_id,
                                                                 addresses: sms_msg.addresses,
                                                                 last_message: sms_msg.body,
                                                                 timestamp: sms_msg.date,
                                                                 unread: !sms_msg.read,
+                                                                has_attachments,
                                                             };
                                                             tracing::debug!(
                                                                 "conversationCreated: thread {} for device {}",
@@ -495,12 +499,14 @@ pub fn conversation_list_subscription(
                                                     let body = msg.body();
                                                     if let Ok(value) = body.deserialize::<zbus::zvariant::OwnedValue>() {
                                                         if let Some(sms_msg) = parse_sms_message(&value) {
+                                                            let has_attachments = !sms_msg.attachments.is_empty();
                                                             let conversation = ConversationSummary {
                                                                 thread_id: sms_msg.thread_id,
                                                                 addresses: sms_msg.addresses,
                                                                 last_message: sms_msg.body,
                                                                 timestamp: sms_msg.date,
                                                                 unread: !sms_msg.read,
+                                                                has_attachments,
                                                             };
                                                             tracing::debug!(
                                                                 "conversationUpdated: thread {} for device {}",
