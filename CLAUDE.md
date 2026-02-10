@@ -8,6 +8,13 @@ Connected is a panel applet for the COSMIC™ desktop environment providing phon
 
 **Key Principle:** This project does NOT modify KDE Connect. It consumes kdeconnectd as a D-Bus service.
 
+## Release Management
+
+- **`main`** — development branch, heading toward 0.2.0
+- **`release/0.1`** — stable branch for bug fixes only, tagged as `v0.1.x`
+- Bug fixes go to `release/0.1` first, then merge forward to `main`
+- Feature work goes to `main` (directly or via `feature/*` branches)
+
 ## Architecture
 
 ```
