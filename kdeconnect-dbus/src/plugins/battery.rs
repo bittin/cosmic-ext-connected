@@ -23,12 +23,3 @@ pub trait Battery {
     // change notifications, which conflicts with a `charge_changed` signal.
     // Use property change streams instead for real-time updates.
 }
-
-/// Battery status information.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BatteryStatus {
-    /// Charge percentage (0-100).
-    pub charge: i32,
-    /// Whether the device is charging.
-    pub is_charging: bool,
-}

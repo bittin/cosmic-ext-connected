@@ -19,9 +19,6 @@ enum DbusSubscriptionState {
         #[allow(dead_code)]
         conn: Connection,
         stream: zbus::MessageStream,
-        /// Last file URL and time for deduplication of rapid signals
-        #[allow(dead_code)]
-        last_file: Option<(String, std::time::Instant)>,
     },
 }
 
@@ -106,14 +103,12 @@ pub fn dbus_signal_subscription() -> impl futures_util::Stream<Item = Message> {
                     DbusSubscriptionState::Listening {
                         conn,
                         stream,
-                        last_file: None,
                     },
                 ))
             }
             DbusSubscriptionState::Listening {
                 conn,
                 mut stream,
-                last_file,
             } => {
                 // Wait for relevant signals - be selective to avoid excessive refreshes
                 loop {
@@ -171,7 +166,6 @@ pub fn dbus_signal_subscription() -> impl futures_util::Stream<Item = Message> {
                                                         DbusSubscriptionState::Listening {
                                                             conn,
                                                             stream,
-                                                            last_file,
                                                         },
                                                     ));
                                                 }
@@ -214,7 +208,6 @@ pub fn dbus_signal_subscription() -> impl futures_util::Stream<Item = Message> {
                                             DbusSubscriptionState::Listening {
                                                 conn,
                                                 stream,
-                                                last_file,
                                             },
                                         ));
                                     }
@@ -358,10 +351,9 @@ pub fn sms_notification_subscription() -> impl futures_util::Stream<Item = Messa
                                                             }
 
                                                             tracing::debug!(
-                                                                "SMS received from {} on device {}: {}",
+                                                                "SMS received from {} on device {}",
                                                                 sms_msg.primary_address(),
-                                                                device_id,
-                                                                &sms_msg.body[..sms_msg.body.len().min(30)]
+                                                                device_id
                                                             );
                                                             return Some((
                                                                 Message::SmsNotificationReceived(
@@ -580,8 +572,6 @@ enum ConversationMessageState {
         stream: zbus::MessageStream,
         thread_id: i64,
         device_id: String,
-        #[allow(dead_code)]
-        messages_per_page: u32,
         /// When we started listening (for hard timeout safety net)
         start_time: tokio::time::Instant,
         /// Set when conversationLoaded arrives; switches to deadline-based timeout
@@ -827,7 +817,6 @@ pub fn conversation_message_subscription(
                             stream,
                             thread_id,
                             device_id,
-                            messages_per_page,
                             start_time: tokio::time::Instant::now(),
                             local_store_done: false,
                             total_message_count: None,
@@ -840,7 +829,6 @@ pub fn conversation_message_subscription(
                     mut stream,
                     thread_id,
                     device_id,
-                    messages_per_page,
                     start_time,
                     mut local_store_done,
                     mut total_message_count,
@@ -961,7 +949,6 @@ pub fn conversation_message_subscription(
                                                                         stream,
                                                                         thread_id,
                                                                         device_id,
-                                                                        messages_per_page,
                                                                         start_time,
                                                                         local_store_done,
                                                                         total_message_count,
@@ -1008,7 +995,6 @@ pub fn conversation_message_subscription(
                                                                     stream,
                                                                     thread_id,
                                                                     device_id,
-                                                                    messages_per_page,
                                                                     start_time,
                                                                     local_store_done,
                                                                     total_message_count,

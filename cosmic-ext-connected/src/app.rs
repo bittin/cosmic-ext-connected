@@ -155,11 +155,6 @@ pub enum Message {
     OpenConversation(i64),
     /// Close conversation and return to conversation list
     CloseConversation,
-    /// Cached conversations loaded immediately (fast initial display)
-    /// NOTE: Currently unused as subscription-based loading handles this incrementally,
-    /// but kept as a potential fallback option.
-    #[allow(dead_code)]
-    ConversationsCached(Vec<ConversationSummary>),
     /// Conversations fully synced from device (background sync complete)
     ConversationsLoaded(Vec<ConversationSummary>),
     /// Contacts loaded asynchronously for a device
@@ -1058,7 +1053,7 @@ impl Application for ConnectApplet {
                         self.config.file_notifications = !self.config.file_notifications;
                     }
                 }
-                tracing::debug!("Settings updated: {:?}", self.config);
+                tracing::debug!("Settings updated");
                 // Save config to disk
                 if let Err(err) = self.config.save() {
                     tracing::error!(?err, "Failed to save config");
@@ -1067,7 +1062,7 @@ impl Application for ConnectApplet {
             Message::SetNotificationTimeout(secs) => {
                 self.config.notification_timeout_secs =
                     secs.clamp(MIN_TIMEOUT_SECS, MAX_TIMEOUT_SECS);
-                tracing::debug!("Settings updated: {:?}", self.config);
+                tracing::debug!("Settings updated");
                 if let Err(err) = self.config.save() {
                     tracing::error!(?err, "Failed to save config");
                 }
@@ -1240,33 +1235,6 @@ impl Application for ConnectApplet {
                     );
                 }
                 self.sms_loading_state = SmsLoadingState::Idle;
-            }
-            Message::ConversationsCached(convs) => {
-                // Fast path: immediately display cached conversations from daemon
-                tracing::info!(
-                    "Displaying {} cached conversations immediately",
-                    convs.len()
-                );
-                if !convs.is_empty() {
-                    // Pre-populate last_seen_sms to prevent false notifications
-                    for conv in &convs {
-                        let current = self.last_seen_sms.get(&conv.thread_id).copied();
-                        if current.is_none() || current < Some(conv.timestamp) {
-                            self.last_seen_sms.insert(conv.thread_id, conv.timestamp);
-                        }
-                    }
-
-                    self.conversations = convs;
-                    self.conversation_list_key = self.conversation_list_key.wrapping_add(1);
-                }
-                // Switch from "Connecting" spinner to showing data + sync indicator
-                // (conversation_sync_active remains true until ConversationsLoaded arrives)
-                if matches!(
-                    self.sms_loading_state,
-                    SmsLoadingState::LoadingConversations(_)
-                ) {
-                    self.sms_loading_state = SmsLoadingState::Idle;
-                }
             }
             Message::ConversationsLoaded(convs) => {
                 // Slow path: full sync complete from phone (legacy batch loading)

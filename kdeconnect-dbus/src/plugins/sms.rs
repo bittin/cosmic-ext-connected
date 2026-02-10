@@ -192,16 +192,6 @@ pub struct ConversationSummary {
     pub unread: bool,
 }
 
-impl ConversationSummary {
-    /// Get the primary address (first participant) for display purposes.
-    pub fn primary_address(&self) -> &str {
-        self.addresses
-            .first()
-            .map(|s| s.as_str())
-            .unwrap_or("Unknown")
-    }
-}
-
 /// Helper to extract a string from a Value.
 fn get_string_from_value(value: &Value<'_>) -> Option<String> {
     match value {
@@ -383,7 +373,7 @@ pub fn parse_messages(values: Vec<OwnedValue>, thread_id: i64) -> Vec<SmsMessage
 ///
 /// Strips spaces, dashes, parentheses, and plus signs.
 /// Leading zeros are preserved as they may be significant in some regions.
-pub fn canonicalize_phone_number(phone: &str) -> String {
+fn canonicalize_phone_number(phone: &str) -> String {
     phone
         .chars()
         .filter(|c| !matches!(c, ' ' | '-' | '(' | ')' | '+'))

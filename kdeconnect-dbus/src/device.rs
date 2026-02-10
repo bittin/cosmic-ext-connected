@@ -79,27 +79,3 @@ impl DeviceProxy<'_> {
         DeviceProxy::builder(connection).path(path)?.build().await
     }
 }
-
-/// Represents device type categories.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeviceType {
-    Phone,
-    Tablet,
-    Desktop,
-    Laptop,
-    Tv,
-    Unknown,
-}
-
-impl From<&str> for DeviceType {
-    fn from(s: &str) -> Self {
-        match s {
-            "phone" | "smartphone" => DeviceType::Phone,
-            "tablet" => DeviceType::Tablet,
-            "desktop" => DeviceType::Desktop,
-            "laptop" => DeviceType::Laptop,
-            "tv" => DeviceType::Tv,
-            _ => DeviceType::Unknown,
-        }
-    }
-}

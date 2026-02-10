@@ -235,21 +235,21 @@ mod tests {
         // but we can verify it returns a bool
         let result = should_show_file_notification("/test/path/file.txt");
         // Result could be true or false depending on prior state, just verify it runs
-        assert!(result || !result);
+        let _ = result;
     }
 
     #[test]
     fn sms_notification_wrapper_works() {
         // Verify the wrapper function doesn't panic and formats key correctly
         let result = should_show_sms_notification(12345, 1700000000000);
-        assert!(result || !result);
+        let _ = result;
     }
 
     #[test]
     fn call_notification_wrapper_works() {
         // Verify the wrapper function doesn't panic and formats key correctly
         let result = should_show_call_notification("callReceived", "+15551234567");
-        assert!(result || !result);
+        let _ = result;
     }
 
     #[test]

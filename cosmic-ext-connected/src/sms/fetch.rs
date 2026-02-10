@@ -1,15 +1,7 @@
 //! SMS conversation and message fetching from KDE Connect.
 //!
-//! This module provides two approaches for loading conversations:
-//!
-//! 1. **Fast cached loading** (`fetch_cached_conversations_async`): Returns immediately
-//!    with whatever the daemon has cached. Used for instant UI display.
-//!
-//! 2. **Full signal-based sync** (`fetch_conversations_async`): Subscribes to D-Bus signals
-//!    and waits for the phone to send fresh data. Used for background sync.
-//!
-//! The recommended pattern is to use both: show cached data immediately, then
-//! refresh in the background for a responsive user experience.
+//! Provides signal-based sync (`fetch_conversations_async`) that subscribes to D-Bus
+//! signals and waits for the phone to send fresh data, with a polling fallback.
 
 use crate::app::Message;
 use crate::constants::sms::{
@@ -26,59 +18,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use zbus::Connection;
-
-/// Fetch cached SMS conversations immediately (fast initial display).
-///
-/// This function returns whatever the daemon has cached without waiting for
-/// the phone to sync. It's designed for instant UI display. Use
-/// `fetch_conversations_async` afterwards for a full background sync.
-///
-/// NOTE: Currently unused as subscription-based loading handles this incrementally,
-/// but kept as a potential fallback option.
-#[allow(dead_code)]
-pub async fn fetch_cached_conversations_async(
-    conn: Arc<Mutex<Connection>>,
-    device_id: String,
-) -> Message {
-    let conn = conn.lock().await;
-
-    // The conversations interface is on the device path
-    let device_path = format!("{}/devices/{}", kdeconnect_dbus::BASE_PATH, device_id);
-
-    // Build conversations proxy on the device path
-    let conversations_proxy = match ConversationsProxy::builder(&conn)
-        .path(device_path.as_str())
-        .ok()
-        .map(|b| b.build())
-    {
-        Some(fut) => match fut.await {
-            Ok(p) => p,
-            Err(e) => {
-                tracing::warn!("Failed to create conversations proxy for cache: {}", e);
-                return Message::ConversationsCached(Vec::new());
-            }
-        },
-        None => {
-            return Message::ConversationsCached(Vec::new());
-        }
-    };
-
-    // Get cached conversations immediately (don't request from phone)
-    match conversations_proxy.active_conversations().await {
-        Ok(values) => {
-            let conversations = parse_conversations(values);
-            tracing::info!(
-                "Loaded {} cached conversations for immediate display",
-                conversations.len()
-            );
-            Message::ConversationsCached(conversations)
-        }
-        Err(e) => {
-            tracing::warn!("Failed to get cached conversations: {}", e);
-            Message::ConversationsCached(Vec::new())
-        }
-    }
-}
 
 /// Fetch SMS conversations for a device using signal-based loading.
 pub async fn fetch_conversations_async(conn: Arc<Mutex<Connection>>, device_id: String) -> Message {

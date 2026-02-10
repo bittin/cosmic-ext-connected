@@ -21,7 +21,7 @@ fn main() -> cosmic::iced::Result {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("cosmic_ext_connected=debug".parse().unwrap()),
+                .add_directive("cosmic_ext_connected=info".parse().unwrap()),
         )
         .init();
 

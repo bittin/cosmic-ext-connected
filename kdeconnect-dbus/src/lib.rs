@@ -26,12 +26,9 @@ pub mod daemon;
 pub mod device;
 pub mod plugins;
 
-mod error;
-
 pub use contacts::{normalize_phone_number, phone_suffix, Contact, ContactLookup};
 pub use daemon::DaemonProxy;
 pub use device::DeviceProxy;
-pub use error::{Error, Result};
 
 /// KDE Connect D-Bus service name
 pub const SERVICE_NAME: &str = "org.kde.kdeconnect.daemon";
