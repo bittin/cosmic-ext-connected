@@ -31,6 +31,18 @@ pub trait Sms {
         count: i64,
     ) -> zbus::Result<()>;
 
+    /// Request a full-size attachment from the phone.
+    ///
+    /// The daemon checks its cache first, and requests from the phone if needed.
+    /// The result is delivered via the `attachmentReceived` signal on the
+    /// Conversations interface.
+    ///
+    /// # Arguments
+    /// * `part_id` - The attachment part ID within the MMS message
+    /// * `unique_identifier` - The unique identifier for the attachment
+    #[zbus(name = "getAttachment")]
+    fn get_attachment(&self, part_id: i64, unique_identifier: &str) -> zbus::Result<()>;
+
     /// Send an SMS message directly via the SMS plugin.
     /// This is more reliable than replyToConversation as it doesn't depend
     /// on the daemon's conversation cache.
@@ -117,6 +129,22 @@ pub trait Conversations {
     ) -> zbus::Result<()>;
 }
 
+/// An MMS attachment on a message.
+///
+/// KDE Connect sends attachments as D-Bus type `a(xsss)` (array of structs):
+/// (part_id: i64, mime_type: String, base64_encoded_thumbnail: String, unique_identifier: String)
+#[derive(Debug, Clone)]
+pub struct Attachment {
+    /// Part ID within the MMS message.
+    pub part_id: i64,
+    /// MIME type (e.g., "image/jpeg", "video/mp4").
+    pub mime_type: String,
+    /// Base64-encoded thumbnail data (may be empty for non-image types).
+    pub base64_thumbnail: String,
+    /// Unique identifier used by KDE Connect for full attachment retrieval.
+    pub unique_identifier: String,
+}
+
 /// Message type indicating direction (sent vs received).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MessageType {
@@ -165,6 +193,8 @@ pub struct SmsMessage {
     /// SIM subscription ID (-1 for default).
     /// Required for MMS group messages to use the correct SIM.
     pub sub_id: i64,
+    /// MMS attachments (images, videos, etc.). Empty for plain SMS.
+    pub attachments: Vec<Attachment>,
 }
 
 impl SmsMessage {
@@ -190,6 +220,8 @@ pub struct ConversationSummary {
     pub timestamp: i64,
     /// Whether there are unread messages.
     pub unread: bool,
+    /// Whether the last message has MMS attachments.
+    pub has_attachments: bool,
 }
 
 /// Helper to extract a string from a Value.
@@ -301,7 +333,40 @@ pub fn parse_sms_message(value: &OwnedValue) -> Option<SmsMessage> {
 
     // Field 8: subID (i64) - SIM subscription ID (which SIM card to use)
     let sub_id = fields.get(8).and_then(get_i64_from_value).unwrap_or(-1);
-    // Field 9: attachments (array)
+
+    // Field 9: attachments - D-Bus type a(xsss) (array of structs: i64, string, string, string)
+    let attachments: Vec<Attachment> = fields
+        .get(9)
+        .and_then(|v| {
+            if let Value::Array(arr) = v {
+                let atts: Vec<Attachment> = arr
+                    .iter()
+                    .filter_map(|item| {
+                        if let Value::Structure(s) = item {
+                            let f = s.fields();
+                            let part_id = f.first().and_then(get_i64_from_value)?;
+                            let mime_type = f.get(1).and_then(get_string_from_value)?;
+                            let base64_thumbnail =
+                                f.get(2).and_then(get_string_from_value).unwrap_or_default();
+                            let unique_identifier =
+                                f.get(3).and_then(get_string_from_value).unwrap_or_default();
+                            Some(Attachment {
+                                part_id,
+                                mime_type,
+                                base64_thumbnail,
+                                unique_identifier,
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                Some(atts)
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default();
 
     Some(SmsMessage {
         body,
@@ -312,6 +377,7 @@ pub fn parse_sms_message(value: &OwnedValue) -> Option<SmsMessage> {
         thread_id,
         uid,
         sub_id,
+        attachments,
     })
 }
 
@@ -338,12 +404,14 @@ pub fn parse_conversations(values: Vec<OwnedValue>) -> Vec<ConversationSummary> 
         }
         seen_threads.insert(msg.thread_id);
 
+        let has_attachments = !msg.attachments.is_empty();
         summaries.push(ConversationSummary {
             thread_id: msg.thread_id,
             addresses: msg.addresses,
             last_message: msg.body,
             timestamp: msg.date,
             unread: !msg.read,
+            has_attachments,
         });
 
         // Limit to most recent conversations
