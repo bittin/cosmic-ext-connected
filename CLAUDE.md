@@ -167,12 +167,13 @@ We fire both: SMS plugin first (cache priming), then Conversations interface (pe
 ### `conversationLoaded` signal count is unreliable
 `conversationLoaded(threadId, messageCount)` fires when the Conversations interface finishes reading its local persistent store. The `messageCount` reflects **how many messages were in the local store**, not the phone's total. After a reboot, the local store may have 0-1 messages even for conversations with hundreds. Never use this count for pagination decisions — use `messages.len() >= messages_per_page` as a heuristic instead.
 
-### Message loading uses a two-phase deadline-based subscription
-`conversation_message_subscription` in `subscriptions.rs` uses a state machine (`Init` → `Listening` → `Done`) with two phases:
+### Message loading uses a deadline-based subscription with three phases
+`conversation_message_subscription` in `subscriptions.rs` uses a state machine (`Init` → `Listening` → `Done`) with three phases:
 - **Phase 1:** Wait for local store signals (`conversationUpdated` per message, then `conversationLoaded`). No activity timeout — just the hard timeout safety net (20s).
-- **Phase 2:** After `conversationLoaded`, keep listening with an 8s activity deadline (`phone_deadline`) for phone response data. The deadline resets **only on matching signals** (messages for our thread), not on unrelated D-Bus traffic. This is critical because `MessageStream` receives all D-Bus signals on the session bus.
+- **Phase 2a:** After `conversationLoaded`, `phone_deadline` (8s, `PHONE_RESPONSE_TIMEOUT_MS`) waits for the phone to START responding. Only checked when `activity_deadline` is `None` (no phone messages yet).
+- **Phase 2b:** After the first phone message, `activity_deadline` (3s, `PHONE_ACTIVITY_TIMEOUT_MS`) takes over. Reset on each matching signal. Once set, `phone_deadline` is ignored. This prevents the previous issue where each message extended the wait by 8s.
 
-The `phone_deadline` must be stored in the `Listening` state struct (not a local variable) because each `unfold` yield exits and re-enters the function.
+Both deadlines reset **only on matching signals** (messages for our thread), not on unrelated D-Bus traffic. Both must be stored in the `Listening` state struct (not local variables) because each `unfold` yield exits and re-enters the function.
 
 ### Scroll prefetch must wait for subscription to complete
 `MessageThreadScrolled` triggers `fetch_older_messages_async` when the user scrolls near the top. This fires a separate `requestConversation` which picks up D-Bus signals on the same session bus. If the initial message subscription is still running, the prefetch collects the **same signals** and `OlderMessagesLoaded` prepends duplicates. Guard: `!self.conversation_load_active` in the prefetch condition. Safety net: `OlderMessagesLoaded` filters `older_msgs` against `known_message_ids` before prepending.
