@@ -40,11 +40,15 @@ pub mod sms {
     /// Safety net if conversationLoaded signal never arrives.
     pub const MESSAGE_SUBSCRIPTION_TIMEOUT_SECS: u64 = 20;
 
-    /// Activity timeout after conversationLoaded for phone response data (milliseconds).
-    /// After the local store read completes (conversationLoaded signal), we keep listening
-    /// this long for additional messages from the phone. Resets on each D-Bus signal.
-    /// Needed because the local store may be empty/sparse after a reboot.
+    /// How long to wait for the phone to start responding with message data after
+    /// conversationLoaded (milliseconds). Only checked when no phone messages have
+    /// arrived yet (activity_deadline is None). Needs to be long enough for network RTT.
     pub const PHONE_RESPONSE_TIMEOUT_MS: u64 = 8000;
+
+    /// Activity timeout for phone message data (milliseconds). Once the first phone
+    /// message arrives, this shorter timeout takes over. Reset on each matching signal.
+    /// If no new messages arrive within this window, the subscription completes.
+    pub const PHONE_ACTIVITY_TIMEOUT_MS: u64 = 3000;
 
     /// How long to wait for the phone to start responding with conversation
     /// list signals on cold start when no cache exists (milliseconds).
