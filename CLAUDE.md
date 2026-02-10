@@ -55,6 +55,11 @@ gtk-update-icon-cache -f ~/.local/share/flatpak/exports/share/icons/hicolor/  # 
 killall cosmic-panel                     # Reload panel
 ```
 
+**Flatpak sandbox permissions** (in `finish-args` of manifest):
+- `--filesystem=xdg-config/cosmic:rw` — read/write COSMIC config
+- `--filesystem=xdg-data/kpeoplevcard:ro` — read contacts for SMS name resolution
+- `--filesystem=xdg-cache/kdeconnect.daemon:ro` — read MMS attachment cache (daemon uses Qt app name `"kdeconnect.daemon"` → cache at `~/.cache/kdeconnect.daemon/`)
+
 **Debug logs:** `journalctl --user -f | grep cosmic-ext-connected`
 
 ## Project Structure
@@ -202,6 +207,9 @@ KDE Connect's ping plugin (`kdeconnect_ping`) does not emit D-Bus signals for in
 `replyToConversation(threadId, message, attachments)` looks up addresses from `m_conversations[threadId]`. If the cache is empty, it **silently returns without sending** (no D-Bus error). Since `m_conversations` is only populated by phone-push responses through `addMessages()` (not by the Conversations interface's local-store reads), the cache is often empty.
 
 `sendWithoutConversation(addresses, message, attachments)` takes explicit addresses and sends reliably. Both methods are on the same Conversations D-Bus interface. The trade-off is that `sendWithoutConversation` doesn't pass sub_id (SIM selection), so the phone uses its default SIM.
+
+### KDE Connect daemon cache path is `kdeconnect.daemon`, not `kdeconnect`
+KDE Connect's daemon sets its Qt application name to `"kdeconnect.daemon"` in `kdeconnectd.cpp`. Qt's `QStandardPaths::CacheLocation` resolves to `~/.cache/<applicationName>/`, so MMS attachments are cached at `~/.cache/kdeconnect.daemon/<device-name>/<uniqueIdentifier>` (e.g. `PART_1762553269778`). Files have no extension — the MIME type comes from the message's attachment metadata. The Flatpak manifest must include `--filesystem=xdg-cache/kdeconnect.daemon:ro` for the applet to read cached attachments.
 
 ## External Resources
 
