@@ -1779,6 +1779,8 @@ impl Application for ConnectApplet {
                 self.sms_loading_state = SmsLoadingState::Idle;
                 // Also clear subscription state on error
                 self.conversation_load_active = false;
+                self.conversation_list_subscription_active = false;
+                self.message_sync_active = false;
                 return self.set_transient_status(format!("SMS error: {}", err));
             }
             Message::SmsComposeInput(text) => {
@@ -2210,22 +2212,40 @@ impl Application for ConnectApplet {
                 // Update last seen timestamp for this thread
                 self.last_seen_sms.insert(message.thread_id, message.date);
 
-                // Capture config settings for the async block
+                // Capture config settings
                 let show_sender = self.config.sms_notification_show_sender;
                 let show_content = self.config.sms_notification_show_content;
                 let timeout_ms = self.config.notification_timeout_secs * 1000;
                 let message_body = message.body.clone();
+
+                // Resolve sender name: use cached contacts if available, otherwise load from disk
+                let cached_sender_name = if show_sender {
+                    let has_cached_contacts = self.sms_device_id.as_ref() == Some(&device_id)
+                        && !self.contacts.is_empty();
+                    if has_cached_contacts {
+                        Some(self.contacts.get_group_display_name(&message.addresses, 3))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
                 let addresses = message.addresses.clone();
 
-                // Show notification asynchronously (loads contacts without blocking UI)
+                // Show notification asynchronously
                 return cosmic::app::Task::perform(
                     async move {
-                        // Load contacts asynchronously to resolve sender name
-                        let contacts = ContactLookup::load_for_device(&device_id).await;
-                        let sender_name = contacts.get_group_display_name(&addresses, 3);
-
-                        // Build notification based on privacy settings
+                        // Build summary: resolve sender name if needed and not already cached
                         let summary = if show_sender {
+                            let sender_name = match cached_sender_name {
+                                Some(name) => name,
+                                None => {
+                                    let contacts =
+                                        ContactLookup::load_for_device(&device_id).await;
+                                    contacts.get_group_display_name(&addresses, 3)
+                                }
+                            };
                             fl!("sms-notification-title-from", sender = sender_name)
                         } else {
                             fl!("sms-notification-title")
