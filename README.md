@@ -28,6 +28,25 @@ Connected links your Android phone to your COSMIC desktop, enabling SMS messagin
 
 ## Installation
 
+### KDE Connect on desktop and phone
+
+Connected requires that the KDE Connect service be installed on your desktop and your Android phone. This step is required for both the Flatpak and source installs of Connected.
+
+1. **Install KDE Connect to desktop:**
+   ```bash
+   # Debian/Ubuntu/Pop!_OS
+   sudo apt install kdeconnect
+
+   # Fedora
+   sudo dnf install kdeconnect
+
+   # Arch
+   sudo pacman -S kdeconnect
+   ```
+
+2. **Install KDE Connect to phone:**
+   Install the KDE Connect Android app from the Google Play store. The KDE Connect app is required to pair your device to your desktop and to communicate with Connected via the KDE Connect service.
+
 ### Flatpak
 
 1. **Install prerequisites:**
@@ -50,31 +69,19 @@ Connected links your Android phone to your COSMIC desktop, enabling SMS messagin
 
 ### From Source
 
-1. **Install KDE Connect daemon:**
-   ```bash
-   # Debian/Ubuntu/Pop!_OS
-   sudo apt install kdeconnect
-
-   # Fedora
-   sudo dnf install kdeconnect
-
-   # Arch
-   sudo pacman -S kdeconnect
-   ```
-
-2. **Clone and build:**
+1. **Clone and build:**
    ```bash
    git clone https://github.com/nwxnw/cosmic-ext-connected.git
    cd cosmic-ext-connected
    cargo build --release
    ```
 
-3. **Install to system:**
+2. **Install to system:**
    ```bash
    sudo just install-only
    ```
 
-4. **Add to panel:**
+3. **Add to panel:**
    - Open: Settings → Desktop → Panel → Add Widget
    - Find "Connected" and add it to your panel
 
@@ -92,6 +99,7 @@ sudo just uninstall
 4. Your phone should appear in the device list
 5. Click on your phone and select "Pair" to establish a connection
 6. Accept the pairing request on your phone
+7. CRITICAL: After pairing your device, you must enable requested permissions in the KDE Connect app on your phone in order to allow Connected to send and receive messages and access your Contacts list.
 
 ## Configuration
 
