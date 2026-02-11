@@ -460,8 +460,6 @@ pub struct ConnectApplet {
     sms_compose_text: String,
     /// Whether SMS is currently being sent
     sms_sending: bool,
-    /// Whether the current/last SMS send was to a group conversation
-    is_group_send: bool,
 
     // Message pagination state
     /// Number of messages currently loaded for pagination offset
@@ -645,7 +643,6 @@ impl Application for ConnectApplet {
             conversations_displayed: 10,
             sms_compose_text: String::new(),
             sms_sending: false,
-            is_group_send: false,
             // Message pagination state
             messages_loaded_count: 0,
             messages_has_more: true,
@@ -1802,54 +1799,37 @@ impl Application for ConnectApplet {
             Message::SendSms => {
                 tracing::info!("SendSms triggered");
                 tracing::info!(
-                    "State: conn={}, device_id={:?}, thread_id={:?}, addresses={:?}, text_empty={}, sending={}",
+                    "State: conn={}, device_id={:?}, thread_id={:?}, text_empty={}, sending={}",
                     self.dbus_connection.is_some(),
                     self.sms_device_id,
                     self.current_thread_id,
-                    self.current_thread_addresses,
                     self.sms_compose_text.is_empty(),
                     self.sms_sending
                 );
-                if let (Some(conn), Some(device_id), Some(_thread_id), Some(addresses)) = (
+                if let (Some(conn), Some(device_id), Some(thread_id)) = (
                     &self.dbus_connection,
                     &self.sms_device_id,
                     self.current_thread_id,
-                    &self.current_thread_addresses,
                 ) {
-                    if !self.sms_compose_text.is_empty()
-                        && !self.sms_sending
-                        && !addresses.is_empty()
-                    {
-                        // Track whether this is a group conversation for error reporting
-                        let unique_addresses: std::collections::HashSet<&str> =
-                            addresses.iter().map(|s| s.as_str()).collect();
-                        self.is_group_send = unique_addresses.len() > 1;
-                        tracing::info!(
-                            "Group send check: {} addresses, {} unique, is_group={}",
-                            addresses.len(),
-                            unique_addresses.len(),
-                            self.is_group_send
-                        );
-
+                    if !self.sms_compose_text.is_empty() && !self.sms_sending {
                         let message_text = self.sms_compose_text.clone();
-                        let recipients = addresses.clone();
                         self.sms_sending = true;
                         tracing::info!(
-                            "Dispatching send_sms_async to {} recipient(s)",
-                            recipients.len()
+                            "Dispatching send_sms_async via replyToConversation for thread_id={}",
+                            thread_id
                         );
                         return cosmic::app::Task::perform(
                             send_sms_async(
                                 conn.clone(),
                                 device_id.clone(),
-                                recipients,
+                                thread_id,
                                 message_text,
                             ),
                             cosmic::Action::App,
                         );
                     } else {
-                        tracing::warn!("SendSms conditions not met: text_empty={}, sending={}, addresses_empty={}",
-                            self.sms_compose_text.is_empty(), self.sms_sending, addresses.is_empty());
+                        tracing::warn!("SendSms conditions not met: text_empty={}, sending={}",
+                            self.sms_compose_text.is_empty(), self.sms_sending);
                     }
                 } else {
                     tracing::warn!("SendSms missing required state");
@@ -1857,17 +1837,11 @@ impl Application for ConnectApplet {
             }
             Message::SmsSendResult(result) => {
                 self.sms_sending = false;
-                let was_group = self.is_group_send;
-                self.is_group_send = false;
                 match result {
                     Ok(sent_body) => {
                         tracing::info!("SMS sent successfully");
                         self.sms_compose_text.clear();
-                        if was_group {
-                            self.status_message = Some(fl!("group-sms-warning"));
-                        } else {
-                            self.status_message = Some(fl!("sms-sent"));
-                        }
+                        self.status_message = Some(fl!("sms-sent"));
 
                         // Update conversation list preview so it reflects the new message
                         // when user navigates back (real message arrives via delayed refresh)
@@ -1918,16 +1892,8 @@ impl Application for ConnectApplet {
                     }
                     Err(err) => {
                         tracing::error!("SMS send error: {}", err);
-                        if was_group {
-                            return self.set_transient_status(format!(
-                                "{}: {}",
-                                fl!("group-sms-send-failed"),
-                                err
-                            ));
-                        } else {
-                            return self
-                                .set_transient_status(format!("{}: {}", fl!("sms-failed"), err));
-                        }
+                        return self
+                            .set_transient_status(format!("{}: {}", fl!("sms-failed"), err));
                     }
                 }
             }

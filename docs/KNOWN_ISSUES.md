@@ -2,32 +2,36 @@
 
 Known issues and workarounds in Connected.
 
-## Group MMS Sending Not Supported
+## Group MMS Reply Creates New Thread on Sender's Phone
 
-Sending messages to group MMS conversations (multiple recipients) does not work reliably with KDE Connect.
+Replying to a group MMS conversation delivers the message to recipients but creates a new thread on the sender's phone. This is a KDE Connect protocol limitation, not an applet bug — the same behavior occurs in the native KDE Connect SMS desktop app.
 
 **Upstream issue:** [KDE Bug 501835](https://bugs.kde.org/show_bug.cgi?id=501835)
 
 ### Symptoms
 
-- Replying to a group message thread silently fails
-- D-Bus call to `sendSms` returns success but message never appears on phone
-- Affects Connected, native KDE Connect SMS app, and kdeconnect-cli alike
+- Reply is delivered to all group recipients
+- Recipients see the reply in the correct existing thread
+- Recipients may receive duplicate copies of the message
+- On the sender's phone, the reply appears in a **new** thread instead of the original
+- If a recipient replies back, their message appears in the original thread (not the new one)
+- 1-on-1 replies are unaffected — they work correctly in all cases
 
 ### Technical Details
 
-- KDE Connect can receive and display group MMS messages
-- `sendSms` D-Bus method accepts multiple addresses but Android app doesn't process them correctly for MMS groups
-- Issue may be device/ROM-specific
-- MMS group identity on Android tied to internal thread IDs, not participant list
+The applet uses `replyToConversation(threadId, message, attachments)` for replies. The daemon looks up addresses and `subID` from its cached `m_conversations[threadId]` and calls `sendSms()` internally, which sends a `kdeconnect.sms.request` protocol packet to the phone. This packet contains:
+- Recipient addresses
+- Message body
+- SIM subscription ID (`subID`)
+- **No thread ID**
 
-### Current Handling
+Without a thread ID in the packet, the Android KDE Connect app cannot associate the outgoing message with the existing group thread. For 1-on-1 conversations, Android matches by address and finds the unique thread. For groups, the address-set lookup is less reliable, so Android creates a new outgoing thread.
 
-The applet detects group conversations (multiple unique recipients) and shows "Group messaging not supported" when attempting to send.
+The duplicate messages on recipients' devices may result from `subID` handling or the Android MMS stack's multi-recipient send path.
 
 ### Workaround
 
-Use the phone directly to reply to group messages.
+Use the phone directly to reply to group messages if thread continuity on the sender's phone is important.
 
 ## Conversation List Scroll Position
 

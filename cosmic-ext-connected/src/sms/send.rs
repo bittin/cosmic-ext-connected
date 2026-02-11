@@ -7,17 +7,19 @@ use tokio::sync::Mutex;
 use zbus::zvariant::{Structure, Value};
 use zbus::Connection;
 
-/// Send an SMS reply to an existing conversation using sendWithoutConversation.
+/// Send an SMS reply to an existing conversation using replyToConversation.
 ///
-/// Uses the Conversations D-Bus interface with explicit addresses. This avoids
-/// the reliability issue with replyToConversation, which silently fails when the
-/// daemon's in-memory m_conversations cache is not populated (the cache is only
-/// filled by phone-push responses through addMessages(), not by the local-store
-/// reads that requestConversation on the Conversations interface performs).
+/// Uses the Conversations D-Bus interface with a thread ID. The daemon looks up
+/// addresses from its in-memory `m_conversations` cache, which is populated when
+/// the user opens the conversation (our SMS plugin `requestConversation` call
+/// primes it). This preserves thread context for group messages.
+///
+/// Note: `replyToConversation` silently no-ops if the cache is empty (no D-Bus
+/// error). The cache is reliably primed by our conversation loading flow.
 pub async fn send_sms_async(
     conn: Arc<Mutex<Connection>>,
     device_id: String,
-    recipients: Vec<String>,
+    thread_id: i64,
     message: String,
 ) -> Message {
     let conn = conn.lock().await;
@@ -39,24 +41,19 @@ pub async fn send_sms_async(
         }
     };
 
-    // Format addresses as D-Bus structs matching KDE Connect's ConversationAddress: (s)
-    let addresses: Vec<Value<'_>> = recipients
-        .iter()
-        .map(|addr| Value::Structure(Structure::from((addr.clone(),))))
-        .collect();
     let empty_attachments: Vec<Value<'_>> = vec![];
 
     tracing::info!(
-        "Sending SMS via sendWithoutConversation to {} recipient(s)",
-        addresses.len()
+        "Sending SMS via replyToConversation for thread_id={}",
+        thread_id
     );
 
     match conversations_proxy
-        .send_without_conversation(addresses, &message, empty_attachments)
+        .reply_to_conversation(thread_id, &message, empty_attachments)
         .await
     {
         Ok(()) => {
-            tracing::info!("SMS sent successfully via sendWithoutConversation");
+            tracing::info!("SMS sent successfully via replyToConversation");
             Message::SmsSendResult(Ok(message))
         }
         Err(e) => {

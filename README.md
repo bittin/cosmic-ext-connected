@@ -137,6 +137,10 @@ Configuration is stored in `~/.config/cosmic/io.github.nwxnw.connected/v6/`
 
 Connected acts as a native UI frontend to the KDE Connect daemon, communicating via D-Bus. The daemon handles all network connectivity, encryption, and protocol details.
 
+## Known Limitations
+
+- **Group MMS replies create a new thread on the sender's phone.** Messages are delivered to all recipients in the correct thread, but the sender's phone shows the reply in a new thread. This is a KDE Connect protocol limitation — the send packet does not include a thread ID, so Android cannot associate the outgoing message with the existing group thread. The same behavior occurs in the native KDE Connect SMS desktop app. 1-on-1 replies are unaffected. See [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) for details.
+
 ## Building
 
 ```bash

@@ -203,10 +203,12 @@ COSMIC's notification daemon does not respect the `expire_timeout` hint from the
 ### Ping notifications cannot be intercepted via D-Bus
 KDE Connect's ping plugin (`kdeconnect_ping`) does not emit D-Bus signals for incoming pings. When a ping is received, `kdeconnectd` handles it internally and sends a desktop notification directly via `KNotification`, bypassing any D-Bus signal mechanism. The applet cannot detect or replace incoming ping notifications. The ping plugin only exposes `sendPing()` methods (outgoing), not incoming signals.
 
-### `replyToConversation` is unreliable — use `sendWithoutConversation`
-`replyToConversation(threadId, message, attachments)` looks up addresses from `m_conversations[threadId]`. If the cache is empty, it **silently returns without sending** (no D-Bus error). Since `m_conversations` is only populated by phone-push responses through `addMessages()` (not by the Conversations interface's local-store reads), the cache is often empty.
+### SMS sending: `replyToConversation` for replies, `sendWithoutConversation` for new messages
+Replies use `replyToConversation(threadId, message, attachments)`, which looks up addresses from the daemon's `m_conversations[threadId]` cache. This cache is reliably primed when the user opens a conversation (our SMS plugin `requestConversation` call populates it via `addMessages()`). Using `replyToConversation` preserves thread context for group messages.
 
-`sendWithoutConversation(addresses, message, attachments)` takes explicit addresses and sends reliably. Both methods are on the same Conversations D-Bus interface. The trade-off is that `sendWithoutConversation` doesn't pass sub_id (SIM selection), so the phone uses its default SIM.
+**Caveat:** `replyToConversation` silently no-ops if the cache is empty (no D-Bus error). The KDE Connect desktop SMS app uses it the same way with no fallback. See `reference/reply-to-conversation-analysis.md` for detection/fallback options if this proves unreliable.
+
+New messages (no existing thread) use `sendWithoutConversation(addresses, message, attachments)` with explicit addresses. Both methods are on the same Conversations D-Bus interface.
 
 ### KDE Connect daemon cache path is `kdeconnect.daemon`, not `kdeconnect`
 KDE Connect's daemon sets its Qt application name to `"kdeconnect.daemon"` in `kdeconnectd.cpp`. Qt's `QStandardPaths::CacheLocation` resolves to `~/.cache/<applicationName>/`, so MMS attachments are cached at `~/.cache/kdeconnect.daemon/<device-name>/<uniqueIdentifier>` (e.g. `PART_1762553269778`). Files have no extension — the MIME type comes from the message's attachment metadata. The Flatpak manifest must include `--filesystem=xdg-cache/kdeconnect.daemon:ro` for the applet to read cached attachments.
