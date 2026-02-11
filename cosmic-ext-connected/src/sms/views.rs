@@ -79,9 +79,13 @@ fn view_attachment<'a>(
 
     // For images with a base64 thumbnail, try to decode and display inline
     if attachment.mime_type.starts_with("image/") && !attachment.base64_thumbnail.is_empty() {
-        if let Ok(decoded) = base64::engine::general_purpose::STANDARD
-            .decode(&attachment.base64_thumbnail)
-        {
+        // KDE Connect sends base64 with embedded newlines — strip before decoding
+        let clean_b64: String = attachment
+            .base64_thumbnail
+            .chars()
+            .filter(|c| !c.is_ascii_whitespace())
+            .collect();
+        if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(&clean_b64) {
             let handle = ImageHandle::from_bytes(decoded);
             let img = cosmic::iced::widget::image(handle)
                 .height(Length::Fixed(200.0))
