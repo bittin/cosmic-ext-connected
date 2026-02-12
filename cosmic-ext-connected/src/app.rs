@@ -1389,6 +1389,21 @@ impl Application for ConnectApplet {
                 self.conversation_sync_active = false;
                 self.conversation_list_subscription_active = false;
 
+                // If subscription yielded 0 conversations, fall back to polling
+                if self.conversations.is_empty() {
+                    if let Some(conn) = &self.dbus_connection {
+                        tracing::info!(
+                            "Subscription returned no conversations for device {}, falling back to polling",
+                            device_id
+                        );
+                        self.conversation_sync_active = true;
+                        return cosmic::app::Task::perform(
+                            fetch_conversations_async(conn.clone(), device_id),
+                            cosmic::Action::App,
+                        );
+                    }
+                }
+
                 // Reset loading state if still loading
                 if matches!(
                     self.sms_loading_state,

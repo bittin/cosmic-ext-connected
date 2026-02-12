@@ -52,7 +52,8 @@ pub mod sms {
 
     /// How long to wait for the phone to start responding with conversation
     /// list signals on cold start when no cache exists (milliseconds).
-    pub const CONVERSATION_LIST_PHONE_WAIT_MS: u64 = 8000;
+    /// Aligned with CONVERSATION_TIMEOUT_INITIAL_SECS for consistency.
+    pub const CONVERSATION_LIST_PHONE_WAIT_MS: u64 = 15000;
 
     /// Activity timeout for conversation list sync (milliseconds).
     /// After the first live signal, if no new signals arrive within this
