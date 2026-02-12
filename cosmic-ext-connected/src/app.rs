@@ -623,7 +623,7 @@ impl Application for ConnectApplet {
     type Flags = ();
     type Message = Message;
 
-    const APP_ID: &'static str = "io.github.nwxnw.connected";
+    const APP_ID: &'static str = "io.github.nwxnw.cosmic-ext-connected";
 
     fn core(&self) -> &Core {
         &self.core

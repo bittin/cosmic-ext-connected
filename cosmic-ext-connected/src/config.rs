@@ -4,7 +4,7 @@ use cosmic::cosmic_config::{self, cosmic_config_derive::CosmicConfigEntry, Cosmi
 use serde::{Deserialize, Serialize};
 
 /// Application ID for configuration storage.
-pub const APP_ID: &str = "io.github.nwxnw.connected";
+pub const APP_ID: &str = "io.github.nwxnw.cosmic-ext-connected";
 
 /// Applet configuration stored in COSMIC's config system.
 #[derive(Debug, Clone, Serialize, Deserialize, CosmicConfigEntry, PartialEq, Eq)]
