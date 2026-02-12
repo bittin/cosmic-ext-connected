@@ -63,11 +63,11 @@ pub async fn send_sms_async(
     }
 }
 
-/// Send an SMS to a new recipient (creates or adds to existing conversation).
+/// Send an SMS to one or more recipients (creates or adds to existing conversation).
 pub async fn send_new_sms_async(
     conn: Arc<Mutex<Connection>>,
     device_id: String,
-    recipient: String,
+    recipients: Vec<String>,
     message: String,
 ) -> Message {
     let conn = conn.lock().await;
@@ -92,9 +92,12 @@ pub async fn send_new_sms_async(
         }
     };
 
-    // Format address as D-Bus struct for KDE Connect
+    // Format addresses as D-Bus structs for KDE Connect
     // KDE Connect's ConversationAddress is a struct containing a single string: (s)
-    let addresses: Vec<Value<'_>> = vec![Value::Structure(Structure::from((recipient.clone(),)))];
+    let addresses: Vec<Value<'_>> = recipients
+        .iter()
+        .map(|r| Value::Structure(Structure::from((r.clone(),))))
+        .collect();
     let empty_attachments: Vec<Value<'_>> = vec![];
 
     match conversations_proxy
