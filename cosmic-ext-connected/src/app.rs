@@ -181,6 +181,10 @@ pub enum Message {
     NewMessageRecipientInput(String),
     /// Update new message body input
     NewMessageBodyInput(String),
+    /// Add the current input as a recipient chip (Enter key or add button)
+    AddManualRecipient,
+    /// Remove a recipient chip by index
+    RemoveRecipient(usize),
     /// Select a contact from suggestions
     SelectContact(String, String), // name, phone
     /// Send a new message
@@ -472,12 +476,12 @@ pub struct ConnectApplet {
     content_height_before_load: Option<f32>,
 
     // New message compose state
-    /// Recipient input for new message
-    new_message_recipient: String,
+    /// Committed recipient chips: (display_name, phone_number)
+    new_message_recipients: Vec<(String, String)>,
+    /// Current text in the recipient input field
+    new_message_recipient_input: String,
     /// Body input for new message
     new_message_body: String,
-    /// Whether the recipient is valid
-    new_message_recipient_valid: bool,
     /// Whether new message is being sent
     new_message_sending: bool,
     /// Contact suggestions for new message: (contact_name, phone_number)
@@ -588,6 +592,30 @@ impl ConnectApplet {
             .map(|(name, phone, _)| (name, phone))
             .collect()
     }
+
+    /// Check if a phone number is already in the committed recipients list.
+    /// Uses suffix matching (last 10 digits) to handle format variations.
+    fn is_recipient_duplicate(&self, phone: &str) -> bool {
+        let normalized = normalize_phone_number(phone);
+        let suffix = phone_suffix(&normalized);
+        self.new_message_recipients.iter().any(|(_, existing)| {
+            let existing_normalized = normalize_phone_number(existing);
+            phone_suffix(&existing_normalized) == suffix
+        })
+    }
+
+    /// Generate contact suggestions filtered to exclude already-added recipients.
+    fn generate_contact_suggestions_filtered(
+        &self,
+        query: &str,
+        max: usize,
+    ) -> Vec<(String, String)> {
+        self.generate_contact_suggestions(query, max + self.new_message_recipients.len())
+            .into_iter()
+            .filter(|(_, phone)| !self.is_recipient_duplicate(phone))
+            .take(max)
+            .collect()
+    }
 }
 
 impl Application for ConnectApplet {
@@ -649,9 +677,9 @@ impl Application for ConnectApplet {
             scroll_offset_before_load: None,
             content_height_before_load: None,
             // New message state
-            new_message_recipient: String::new(),
+            new_message_recipients: Vec::new(),
+            new_message_recipient_input: String::new(),
             new_message_body: String::new(),
-            new_message_recipient_valid: false,
             new_message_sending: false,
             contact_suggestions: Vec::new(),
             // Media controls state
@@ -1919,50 +1947,72 @@ impl Application for ConnectApplet {
             // New message
             Message::OpenNewMessage => {
                 self.view_mode = ViewMode::NewMessage;
-                self.new_message_recipient.clear();
+                self.new_message_recipients.clear();
+                self.new_message_recipient_input.clear();
                 self.new_message_body.clear();
-                self.new_message_recipient_valid = false;
                 self.new_message_sending = false;
-                // Clear any previous suggestions; they will be populated by search
                 self.contact_suggestions.clear();
-                // Focus the recipient input field
                 return widget::text_input::focus(widget::Id::new("new-message-recipient"));
             }
             Message::CloseNewMessage => {
                 self.view_mode = ViewMode::ConversationList;
-                self.new_message_recipient.clear();
+                self.new_message_recipients.clear();
+                self.new_message_recipient_input.clear();
                 self.new_message_body.clear();
-                self.new_message_recipient_valid = false;
                 self.new_message_sending = false;
             }
             Message::NewMessageRecipientInput(text) => {
-                self.new_message_recipient_valid = is_address_valid(&text);
-                // Generate contact suggestions with all phone numbers, sorted by conversation recency
-                self.contact_suggestions = self.generate_contact_suggestions(&text, 10);
-                self.new_message_recipient = text;
+                self.contact_suggestions = self.generate_contact_suggestions_filtered(&text, 10);
+                self.new_message_recipient_input = text;
             }
             Message::NewMessageBodyInput(text) => {
                 self.new_message_body = text;
             }
-            Message::SelectContact(name, phone) => {
-                // User selected a contact - fill in the phone number
-                self.new_message_recipient = phone;
-                self.new_message_recipient_valid = true;
-                self.contact_suggestions.clear();
-                tracing::debug!("Selected contact: {}", name);
+            Message::AddManualRecipient => {
+                let input = self.new_message_recipient_input.trim().to_string();
+                if is_address_valid(&input) && !self.is_recipient_duplicate(&input) {
+                    let display = self.contacts.get_name_or_number(&input);
+                    self.new_message_recipients.push((display, input));
+                    self.new_message_recipient_input.clear();
+                    self.contact_suggestions.clear();
+                    return widget::text_input::focus(widget::Id::new("new-message-recipient"));
+                }
+            }
+            Message::RemoveRecipient(index) => {
+                if index < self.new_message_recipients.len() {
+                    self.new_message_recipients.remove(index);
+                }
+            }
+            Message::SelectContact(_name, phone) => {
+                if !self.is_recipient_duplicate(&phone) {
+                    let display = self.contacts.get_name_or_number(&phone);
+                    self.new_message_recipients.push((display, phone));
+                    self.new_message_recipient_input.clear();
+                    self.contact_suggestions.clear();
+                    return widget::text_input::focus(widget::Id::new("new-message-recipient"));
+                }
             }
             Message::SendNewMessage => {
                 if let (Some(conn), Some(device_id)) = (&self.dbus_connection, &self.sms_device_id)
                 {
-                    if self.new_message_recipient_valid
+                    if !self.new_message_recipients.is_empty()
                         && !self.new_message_body.is_empty()
                         && !self.new_message_sending
                     {
-                        let recipient = self.new_message_recipient.clone();
+                        let recipients: Vec<String> = self
+                            .new_message_recipients
+                            .iter()
+                            .map(|(_, phone)| phone.clone())
+                            .collect();
                         let message = self.new_message_body.clone();
                         self.new_message_sending = true;
                         return cosmic::app::Task::perform(
-                            send_new_sms_async(conn.clone(), device_id.clone(), recipient, message),
+                            send_new_sms_async(
+                                conn.clone(),
+                                device_id.clone(),
+                                recipients,
+                                message,
+                            ),
                             cosmic::Action::App,
                         );
                     }
@@ -1975,9 +2025,9 @@ impl Application for ConnectApplet {
                         tracing::info!("New message send result: {}", msg);
                         self.status_message = Some(msg.clone());
                         // Clear fields and return to conversation list
-                        self.new_message_recipient.clear();
+                        self.new_message_recipients.clear();
+                        self.new_message_recipient_input.clear();
                         self.new_message_body.clear();
-                        self.new_message_recipient_valid = false;
                         self.view_mode = ViewMode::ConversationList;
                         // Refresh conversations to show the new thread
                         // Show loading state since new conversation won't be in cache
@@ -2501,9 +2551,9 @@ impl Application for ConnectApplet {
                 status_message: self.status_message.as_deref(),
             }),
             ViewMode::NewMessage => view_new_message(NewMessageParams {
-                recipient: &self.new_message_recipient,
+                recipients: &self.new_message_recipients,
+                recipient_input: &self.new_message_recipient_input,
                 body: &self.new_message_body,
-                recipient_valid: self.new_message_recipient_valid,
                 sending: self.new_message_sending,
                 contact_suggestions: &self.contact_suggestions,
             }),

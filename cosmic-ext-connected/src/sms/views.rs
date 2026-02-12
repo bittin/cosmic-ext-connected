@@ -569,9 +569,9 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
 
 /// Parameters for the new message view.
 pub struct NewMessageParams<'a> {
-    pub recipient: &'a str,
+    pub recipients: &'a [(String, String)],
+    pub recipient_input: &'a str,
     pub body: &'a str,
-    pub recipient_valid: bool,
     pub sending: bool,
     /// Contact suggestions as (contact_name, phone_number) tuples
     pub contact_suggestions: &'a [(String, String)],
@@ -581,12 +581,19 @@ pub struct NewMessageParams<'a> {
 pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
     let sp = cosmic::theme::spacing();
 
+    // Dynamic header: "New Group Message" with 2+ recipients
+    let heading_text = if params.recipients.len() >= 2 {
+        fl!("new-group-message")
+    } else {
+        fl!("new-message")
+    };
+
     let header = applet::padded_control(
         row![
             widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
                 .class(cosmic::theme::Button::Link)
                 .on_press(Message::CloseNewMessage),
-            text::heading(fl!("new-message"))
+            text::heading(heading_text)
                 .class(cosmic::theme::Text::Accent),
             widget::horizontal_space(),
         ]
@@ -594,17 +601,54 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
         .align_y(Alignment::Center),
     );
 
-    // Recipient input with validation indicator
-    let recipient_input = widget::text_input(fl!("recipient-placeholder"), params.recipient)
-        .on_input(Message::NewMessageRecipientInput)
-        .width(Length::Fill)
-        .id(widget::Id::new("new-message-recipient"));
+    // Chip area — vertical list of committed recipients
+    let chips_section: Element<Message> = if params.recipients.is_empty() {
+        widget::Space::new(Length::Shrink, Length::Shrink).into()
+    } else {
+        let mut chips_col = column![].spacing(sp.space_xxxs);
+        for (i, (display_name, phone)) in params.recipients.iter().enumerate() {
+            // Show "Name (phone)" if name differs from phone, else just phone
+            let label = if display_name != phone {
+                format!("{} ({})", display_name, phone)
+            } else {
+                phone.clone()
+            };
 
-    let validation_icon: Element<Message> = if params.recipient.is_empty() {
+            let chip = widget::container(
+                row![
+                    text::body(label),
+                    widget::horizontal_space(),
+                    widget::button::icon(widget::icon::from_name("edit-clear-symbolic").size(16))
+                        .on_press(Message::RemoveRecipient(i)),
+                ]
+                .spacing(sp.space_xxs)
+                .align_y(Alignment::Center),
+            )
+            .padding([sp.space_xxxs, sp.space_xs])
+            .class(cosmic::theme::Container::Card);
+
+            chips_col = chips_col.push(chip);
+        }
+        widget::container(chips_col)
+            .padding([0, sp.space_xs as u16])
+            .width(Length::Fill)
+            .into()
+    };
+
+    // Recipient input with action icon
+    let recipient_input =
+        widget::text_input(fl!("recipient-placeholder"), params.recipient_input)
+            .on_input(Message::NewMessageRecipientInput)
+            .on_submit(|_| Message::AddManualRecipient)
+            .width(Length::Fill)
+            .id(widget::Id::new("new-message-recipient"));
+
+    let input_valid = is_address_valid(params.recipient_input);
+    let action_icon: Element<Message> = if params.recipient_input.is_empty() {
         widget::Space::new(Length::Fixed(20.0), Length::Fixed(20.0)).into()
-    } else if params.recipient_valid {
-        widget::icon::from_name("emblem-ok-symbolic")
-            .size(20)
+    } else if input_valid {
+        widget::button::icon(widget::icon::from_name("list-add-symbolic").size(20))
+            .on_press(Message::AddManualRecipient)
             .into()
     } else {
         widget::icon::from_name("dialog-error-symbolic")
@@ -613,15 +657,14 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
     };
 
     let recipient_row = applet::padded_control(
-        row![text::body(fl!("to")), recipient_input, validation_icon,]
+        row![text::body(fl!("to")), recipient_input, action_icon,]
             .spacing(sp.space_xxs)
             .align_y(Alignment::Center),
     );
 
-    // Contact suggestions (show if recipient is being typed and we have matches)
-    // Each suggestion is a (contact_name, phone_number) tuple, sorted by conversation recency
-    let suggestions_section: Element<Message> = if !params.recipient.is_empty()
-        && !is_address_valid(params.recipient)
+    // Contact suggestions (show if input is being typed and we have matches)
+    let suggestions_section: Element<Message> = if !params.recipient_input.is_empty()
+        && !is_address_valid(params.recipient_input)
         && !params.contact_suggestions.is_empty()
     {
         let mut suggestions_col = column![].spacing(sp.space_xxxs);
@@ -651,8 +694,9 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
         .on_input(Message::NewMessageBodyInput)
         .width(Length::Fill);
 
-    // Send button
-    let send_enabled = params.recipient_valid && !params.body.is_empty() && !params.sending;
+    // Send button — enabled when at least one recipient and body is non-empty
+    let send_enabled =
+        !params.recipients.is_empty() && !params.body.is_empty() && !params.sending;
 
     let send_btn = if params.sending {
         widget::button::standard(fl!("sending"))
@@ -674,6 +718,7 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
 
     column![
         header,
+        chips_section,
         recipient_row,
         suggestions_section,
         applet::padded_control(message_input),

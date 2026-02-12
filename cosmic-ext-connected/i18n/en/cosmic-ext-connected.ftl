@@ -138,6 +138,7 @@ hold-to-copy = Hold to copy
 
 # New message
 new-message = New Message
+new-group-message = New Group Message
 to = To:
 recipient-placeholder = Type a name to search contacts, or enter a phone number
 type-message = Type a message...
