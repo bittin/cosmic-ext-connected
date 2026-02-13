@@ -4,6 +4,8 @@ A phone connectivity applet for the COSMIC™ desktop, powered by KDE Connect.
 
 Connected links your Android phone to your COSMIC desktop, enabling SMS messaging, file sharing, notifications, media control, and more—all through a native libcosmic interface.
 
+![Connected applet showing device page](screenshots/connected-applet.png)
+
 ## Features
 
 - **Device Management** - Pair, unpair, and monitor connected devices
@@ -69,20 +71,34 @@ Connected requires that the KDE Connect service be installed on your desktop and
 
 ### From Source
 
-1. **Clone and build:**
+1. **Install build dependencies:**
+   ```bash
+   # Debian/Ubuntu/Pop!_OS
+   sudo apt install -y \
+     build-essential cmake pkgconf \
+     libxkbcommon-dev libwayland-dev libglvnd-dev \
+     libexpat1-dev libfontconfig-dev libfreetype-dev \
+     libgtk-3-dev libinput-dev libdbus-1-dev libssl-dev
+
+   # Install just (task runner, used for install/uninstall)
+   cargo install just
+   ```
+
+2. **Clone and build:**
    ```bash
    git clone https://github.com/nwxnw/cosmic-ext-connected.git
    cd cosmic-ext-connected
    cargo build --release
    ```
 
-2. **Install to system:**
+3. **Install to system:**
    ```bash
    sudo just install-only
+   killall cosmic-panel  # Restart panel to pick up new applet
    ```
 
-3. **Add to panel:**
-   - Open: Settings → Desktop → Panel → Add Widget
+4. **Add to panel:**
+   - Open: Settings → Desktop → Panel → Applets → Add Applet
    - Find "Connected" and add it to your panel
 
 ### Uninstall
@@ -115,7 +131,7 @@ Settings are accessible through the applet's settings menu (gear icon). Options 
   - Show contact name (privacy option)
   - Show phone number (privacy option)
 
-Configuration is stored in `~/.config/cosmic/io.github.nwxnw.connected/v6/`
+Configuration is stored in `~/.config/cosmic/io.github.nwxnw.cosmic-ext-connected/v6/`
 
 ## Architecture
 
