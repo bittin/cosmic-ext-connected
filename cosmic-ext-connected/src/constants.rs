@@ -61,9 +61,6 @@ pub mod sms {
     /// (500ms) because conversation list signals arrive with larger gaps.
     pub const CONVERSATION_LIST_ACTIVITY_TIMEOUT_MS: u64 = 3000;
 
-    /// Interval for polling in fallback mode (milliseconds).
-    pub const FALLBACK_POLLING_INTERVAL_MS: u64 = 500;
-
     /// Polling delays for fallback conversation loading (milliseconds).
     /// We poll multiple times with increasing delays to give the phone time to sync.
     pub const FALLBACK_POLLING_DELAYS_MS: &[u64] = &[500, 1000, 1500, 2000, 3000];
@@ -72,9 +69,6 @@ pub mod sms {
 
 /// Refresh and polling interval constants.
 pub mod refresh {
-    /// Delay after sending SMS before refreshing the thread (seconds).
-    pub const POST_SEND_DELAY_SECS: u64 = 2;
-
     /// Interval for refreshing media player state (seconds).
     pub const MEDIA_INTERVAL_SECS: u64 = 2;
 }
