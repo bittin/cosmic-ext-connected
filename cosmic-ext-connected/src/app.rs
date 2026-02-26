@@ -17,10 +17,10 @@ use crate::media::{
     MediaControlsParams,
 };
 use crate::sms::{
-    conversation_list_subscription, fetch_conversations_async, fetch_messages_async,
-    fetch_older_messages_async, request_attachment_async, send_new_sms_async, send_sms_async,
-    view_conversation_list, view_message_thread, view_new_message, ConversationListParams,
-    MessageThreadParams, NewMessageParams,
+    conversation_list_subscription, fetch_conversations_async, fetch_older_messages_async,
+    prefetch_conversations_async, request_attachment_async, send_new_sms_async, send_sms_async,
+    verify_sent_message_async, view_conversation_list, view_message_thread, view_new_message,
+    ConversationListParams, MessageThreadParams, NewMessageParams,
 };
 use crate::subscriptions::{
     call_notification_subscription, conversation_message_subscription, dbus_signal_subscription,
@@ -43,13 +43,17 @@ use cosmic::{Application, Element};
 use kdeconnect_dbus::{
     contacts::ContactLookup,
     normalize_phone_number, phone_suffix,
-    plugins::{is_address_valid, ConversationSummary, NotificationInfo, SmsMessage},
+    plugins::{is_address_valid, ConversationSummary, MessageType, NotificationInfo, SmsMessage},
 };
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use zbus::Connection;
+
+/// Sentinel UID for optimistic sent message bubbles.
+/// Real Android message UIDs are positive integers; -1 indicates pending verification.
+pub const OPTIMISTIC_MESSAGE_UID: i32 = -1;
 
 /// Messages that drive the applet's state changes.
 #[derive(Debug, Clone)]
@@ -149,6 +153,8 @@ pub enum Message {
     // SMS
     /// Open SMS view for a device
     OpenSmsView(String),
+    /// Prefetched conversations ready from device selection background fetch
+    SmsPrefetchReady(String, Vec<ConversationSummary>),
     /// Close SMS view and return to device list
     CloseSmsView,
     /// Open a specific conversation thread
@@ -161,8 +167,6 @@ pub enum Message {
     ContactsLoaded(String, ContactLookup),
     /// User clicked "Load More" button in conversation list
     LoadMoreConversations,
-    /// Messages loaded for a thread (thread_id, messages, total_count)
-    MessagesLoaded(i64, Vec<SmsMessage>, Option<u64>),
     /// SMS-related error occurred
     SmsError(String),
     /// Update SMS compose text input
@@ -171,8 +175,8 @@ pub enum Message {
     SendSms,
     /// SMS send operation completed (Ok contains the sent message body for optimistic update)
     SmsSendResult(Result<String, String>),
-    /// Delayed refresh of messages after sending (to give KDE Connect time to sync)
-    DelayedMessageRefresh(i64),
+    /// Verification result for optimistic sent message
+    SmsVerifyResult { thread_id: i64, confirmed: bool },
     /// Open new message compose view
     OpenNewMessage,
     /// Close new message view
@@ -432,6 +436,8 @@ pub struct ConnectApplet {
     sms_device_name: Option<String>,
     /// List of conversations for current device
     conversations: Vec<ConversationSummary>,
+    /// Prefetched conversations from device selection, consumed by OpenSmsView
+    sms_prefetch: Option<(String, Vec<ConversationSummary>)>,
     /// Whether background sync is active (syncing more conversations from phone)
     conversation_sync_active: bool,
     /// Whether subscription-based conversation list loading is active
@@ -655,6 +661,7 @@ impl Application for ConnectApplet {
             sms_device_id: None,
             sms_device_name: None,
             conversations: Vec::new(),
+            sms_prefetch: None,
             conversation_sync_active: false,
             conversation_list_subscription_active: false,
             message_sync_active: false,
@@ -788,14 +795,23 @@ impl Application for ConnectApplet {
 
             // Navigation
             Message::SelectDevice(device_id) => {
-                self.selected_device = Some(device_id);
+                self.selected_device = Some(device_id.clone());
                 self.view_mode = ViewMode::DevicePage;
                 self.share_text_input.clear();
+
+                // Prefetch SMS conversations so they're ready when user opens SMS
+                if let Some(conn) = &self.dbus_connection {
+                    return cosmic::app::Task::perform(
+                        prefetch_conversations_async(conn.clone(), device_id),
+                        cosmic::Action::App,
+                    );
+                }
             }
             Message::BackToList => {
                 self.selected_device = None;
                 self.view_mode = ViewMode::DeviceList;
                 self.share_text_input.clear();
+                self.sms_prefetch = None;
             }
             Message::OpenSendToView(device_id, device_type) => {
                 self.sendto_device_id = Some(device_id);
@@ -1146,6 +1162,12 @@ impl Application for ConnectApplet {
                         cosmic::app::Task::none()
                     };
 
+                    // Check if we have prefetched conversations for this device
+                    let has_prefetch = self
+                        .sms_prefetch
+                        .as_ref()
+                        .is_some_and(|(id, convs)| id == &device_id && !convs.is_empty());
+
                     if has_cache {
                         // Use in-memory cached conversations, enable subscription for background refresh
                         self.sms_loading_state = SmsLoadingState::Idle; // Show cached data immediately
@@ -1157,6 +1179,29 @@ impl Application for ConnectApplet {
                             device_id
                         );
                         // Subscription will handle background sync
+                        return contacts_task;
+                    } else if has_prefetch {
+                        // Use prefetched conversations from device selection
+                        if let Some((_, prefetched)) = self.sms_prefetch.take() {
+                            // Seed last_seen_sms to prevent false notifications
+                            for conv in &prefetched {
+                                let current =
+                                    self.last_seen_sms.get(&conv.thread_id).copied();
+                                if current.is_none() || current < Some(conv.timestamp) {
+                                    self.last_seen_sms.insert(conv.thread_id, conv.timestamp);
+                                }
+                            }
+                            self.conversations = prefetched;
+                            self.conversations_displayed = 10;
+                            self.sms_loading_state = SmsLoadingState::Idle;
+                            self.conversation_sync_active = true;
+                            self.conversation_list_subscription_active = true;
+                            tracing::info!(
+                                "Using prefetched {} conversations for device: {}, starting subscription-based sync",
+                                self.conversations.len(),
+                                device_id
+                            );
+                        }
                         return contacts_task;
                     } else {
                         // No cache or different device - subscription-based loading
@@ -1307,6 +1352,12 @@ impl Application for ConnectApplet {
                 }
             }
 
+            Message::SmsPrefetchReady(device_id, conversations) => {
+                if !conversations.is_empty() {
+                    self.sms_prefetch = Some((device_id, conversations));
+                }
+            }
+
             // Subscription-based conversation list loading handlers
             Message::ConversationReceived { device_id, conversation } => {
                 // Guard: Only process if for current device
@@ -1434,64 +1485,6 @@ impl Application for ConnectApplet {
                 // Show 10 more conversations (up to total available)
                 self.conversations_displayed =
                     (self.conversations_displayed + 10).min(self.conversations.len());
-            }
-            Message::MessagesLoaded(thread_id, msgs, total_count) => {
-                // Slow path: full sync complete from phone
-                if self.current_thread_id == Some(thread_id) {
-                    tracing::info!(
-                        "Background sync complete: {} messages for thread {} (had {} cached, total: {:?})",
-                        msgs.len(),
-                        thread_id,
-                        self.messages.len(),
-                        total_count
-                    );
-                    // Only update if we got more messages than currently shown
-                    if msgs.len() >= self.messages.len() {
-                        // Extract sub_id from the first message (for MMS group messaging)
-                        if let Some(first_msg) = msgs.first() {
-                            self.current_thread_sub_id = Some(first_msg.sub_id);
-                            tracing::debug!(
-                                "Set sub_id to {} for thread {}",
-                                first_msg.sub_id,
-                                thread_id
-                            );
-                        }
-
-                        // Update last_seen_sms with the newest message timestamp
-                        // to prevent false notifications for messages we just loaded
-                        if let Some(newest) = msgs.iter().map(|m| m.date).max() {
-                            let current = self.last_seen_sms.get(&thread_id).copied();
-                            if current.is_none() || current < Some(newest) {
-                                self.last_seen_sms.insert(thread_id, newest);
-                            }
-                        }
-
-                        // Update pagination state
-                        self.messages_loaded_count = msgs.len() as u32;
-                        // Use total_count for accurate pagination if available,
-                        // otherwise fall back to heuristic
-                        self.messages_has_more = match total_count {
-                            Some(total) => (msgs.len() as u64) < total,
-                            None => msgs.len() >= self.config.messages_per_page as usize,
-                        };
-                        self.messages = msgs;
-                    }
-                    // Background sync complete - clear sync indicator
-                    self.message_sync_active = false;
-                    // Reset loading state if still loading
-                    if matches!(self.sms_loading_state, SmsLoadingState::LoadingMessages(_)) {
-                        self.sms_loading_state = SmsLoadingState::Idle;
-                    }
-
-                    // Always scroll to bottom when messages are loaded/updated
-                    // to keep the newest messages visible
-                    if !self.messages.is_empty() {
-                        return scrollable::snap_to(
-                            widget::Id::new("message-thread"),
-                            scrollable::RelativeOffset::END,
-                        );
-                    }
-                }
             }
             Message::OlderMessagesLoaded(
                 thread_id,
@@ -1887,7 +1880,7 @@ impl Application for ConnectApplet {
                         self.status_message = Some(fl!("sms-sent"));
 
                         // Update conversation list preview so it reflects the new message
-                        // when user navigates back (real message arrives via delayed refresh)
+                        // when user navigates back
                         if let Some(thread_id) = self.current_thread_id {
                             let now_ms = std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
@@ -1899,26 +1892,33 @@ impl Application for ConnectApplet {
                                 .iter_mut()
                                 .find(|c| c.thread_id == thread_id)
                             {
-                                conv.last_message = sent_body;
+                                conv.last_message = sent_body.clone();
                                 conv.timestamp = now_ms;
                             }
                             // Re-sort conversations by timestamp (newest first)
                             self.conversations
                                 .sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
 
-                            // Trigger delayed refresh to fetch the real sent message from phone
-                            // (gives KDE Connect time to process the sent message)
-                            return cosmic::app::Task::batch(vec![
-                                cosmic::app::Task::perform(
-                                    async move {
-                                        tokio::time::sleep(std::time::Duration::from_secs(
-                                            refresh::POST_SEND_DELAY_SECS,
-                                        ))
-                                        .await;
-                                        thread_id
-                                    },
-                                    |tid| cosmic::Action::App(Message::DelayedMessageRefresh(tid)),
-                                ),
+                            // Add optimistic bubble to message thread
+                            let optimistic = SmsMessage {
+                                body: sent_body.clone(),
+                                addresses: self
+                                    .current_thread_addresses
+                                    .clone()
+                                    .unwrap_or_default(),
+                                date: now_ms,
+                                message_type: MessageType::Sent,
+                                read: true,
+                                thread_id,
+                                uid: OPTIMISTIC_MESSAGE_UID,
+                                sub_id: self.current_thread_sub_id.unwrap_or(-1),
+                                attachments: vec![],
+                            };
+                            self.messages.push(optimistic);
+                            self.known_message_ids.insert(OPTIMISTIC_MESSAGE_UID);
+
+                            // Build batch: scroll to bottom, clear status after delay, verify delivery
+                            let mut tasks = vec![
                                 scrollable::snap_to(
                                     widget::Id::new("message-thread"),
                                     scrollable::RelativeOffset::END,
@@ -1930,7 +1930,24 @@ impl Application for ConnectApplet {
                                     },
                                     |_| cosmic::Action::App(Message::ClearStatusMessage),
                                 ),
-                            ]);
+                            ];
+
+                            // Spawn verification to confirm delivery after ~10s
+                            if let (Some(conn), Some(device_id)) =
+                                (&self.dbus_connection, &self.sms_device_id)
+                            {
+                                tasks.push(cosmic::app::Task::perform(
+                                    verify_sent_message_async(
+                                        conn.clone(),
+                                        device_id.clone(),
+                                        thread_id,
+                                        sent_body,
+                                    ),
+                                    cosmic::Action::App,
+                                ));
+                            }
+
+                            return cosmic::app::Task::batch(tasks);
                         }
                     }
                     Err(err) => {
@@ -1940,25 +1957,23 @@ impl Application for ConnectApplet {
                     }
                 }
             }
-            Message::DelayedMessageRefresh(thread_id) => {
-                // Refresh messages after a delay to sync sent message from server
-                if self.current_thread_id == Some(thread_id) {
-                    if let (Some(conn), Some(device_id)) =
-                        (&self.dbus_connection, &self.sms_device_id)
+            Message::SmsVerifyResult {
+                thread_id,
+                confirmed,
+            } => {
+                if self.current_thread_id == Some(thread_id) && confirmed {
+                    // Replace optimistic UID with 0 to clear pending indicator
+                    if let Some(msg) = self
+                        .messages
+                        .iter_mut()
+                        .find(|m| m.uid == OPTIMISTIC_MESSAGE_UID)
                     {
-                        return cosmic::app::Task::perform(
-                            fetch_messages_async(
-                                conn.clone(),
-                                device_id.clone(),
-                                thread_id,
-                                self.config.messages_per_page,
-                            ),
-                            cosmic::Action::App,
-                        );
+                        msg.uid = 0;
                     }
                 }
+                // If not confirmed, the optimistic bubble stays with uid -1
+                // (pending indicator remains as a subtle signal something went wrong)
             }
-
             // New message
             Message::OpenNewMessage => {
                 self.view_mode = ViewMode::NewMessage;

@@ -6,13 +6,13 @@
 use crate::app::Message;
 use crate::constants::sms::{
     CONVERSATION_TIMEOUT_CACHED_SECS, CONVERSATION_TIMEOUT_INITIAL_SECS,
-    FALLBACK_POLLING_DELAYS_MS, FALLBACK_POLLING_INTERVAL_MS, MESSAGE_FETCH_TIMEOUT_SECS,
-    SIGNAL_ACTIVITY_TIMEOUT_MS, SIGNAL_DRAIN_TIMEOUT_MS, TIMEOUT_CHECK_INTERVAL_MS,
+    FALLBACK_POLLING_DELAYS_MS, MESSAGE_FETCH_TIMEOUT_SECS, SIGNAL_ACTIVITY_TIMEOUT_MS,
+    SIGNAL_DRAIN_TIMEOUT_MS, TIMEOUT_CHECK_INTERVAL_MS,
 };
 use futures_util::StreamExt;
 use kdeconnect_dbus::plugins::{
-    parse_conversations, parse_messages, parse_sms_message, ConversationSummary,
-    ConversationsProxy, SmsMessage, SmsProxy, MAX_CONVERSATIONS,
+    parse_conversations, parse_sms_message, ConversationSummary, ConversationsProxy, SmsMessage,
+    SmsProxy, MAX_CONVERSATIONS,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -330,271 +330,6 @@ async fn fetch_conversations_fallback(conversations_proxy: &ConversationsProxy<'
     Message::ConversationsLoaded(best_result)
 }
 
-/// Fetch messages for a specific conversation thread using D-Bus signals.
-pub async fn fetch_messages_async(
-    conn: Arc<Mutex<Connection>>,
-    device_id: String,
-    thread_id: i64,
-    messages_per_page: u32,
-) -> Message {
-    let conn = conn.lock().await;
-
-    // The conversations interface is on the device path
-    let device_path = format!("{}/devices/{}", kdeconnect_dbus::BASE_PATH, device_id);
-
-    // Build conversations proxy on the device path (for signal listening)
-    let conversations_proxy = match ConversationsProxy::builder(&conn)
-        .path(device_path.as_str())
-        .ok()
-        .map(|b| b.build())
-    {
-        Some(fut) => match fut.await {
-            Ok(p) => p,
-            Err(e) => {
-                return Message::SmsError(format!("Failed to create conversations proxy: {}", e));
-            }
-        },
-        None => {
-            return Message::SmsError("Failed to build conversations proxy path".to_string());
-        }
-    };
-
-    // Build SMS proxy for the request (populates daemon's m_conversations cache)
-    let sms_path = format!("{}/devices/{}/sms", kdeconnect_dbus::BASE_PATH, device_id);
-    let sms_proxy = match SmsProxy::builder(&conn)
-        .path(sms_path.as_str())
-        .ok()
-        .map(|b| b.build())
-    {
-        Some(fut) => match fut.await {
-            Ok(p) => p,
-            Err(e) => {
-                return Message::SmsError(format!("Failed to create SMS proxy: {}", e));
-            }
-        },
-        None => {
-            return Message::SmsError("Failed to build SMS proxy path".to_string());
-        }
-    };
-
-    // Set up signal stream for conversationUpdated BEFORE requesting
-    let mut updated_stream = match conversations_proxy.receive_conversation_updated().await {
-        Ok(stream) => stream,
-        Err(e) => {
-            tracing::warn!("Failed to subscribe to conversationUpdated: {}", e);
-            // Fallback to simple polling
-            return fetch_messages_fallback(&conversations_proxy, &sms_proxy, thread_id, messages_per_page)
-                .await;
-        }
-    };
-
-    // Set up signal stream for conversationLoaded
-    let mut loaded_stream = match conversations_proxy.receive_conversation_loaded().await {
-        Ok(stream) => stream,
-        Err(e) => {
-            tracing::warn!("Failed to subscribe to conversationLoaded: {}", e);
-            return fetch_messages_fallback(&conversations_proxy, &sms_proxy, thread_id, messages_per_page)
-                .await;
-        }
-    };
-
-    // Fire SMS plugin request first (primes daemon's m_conversations cache for replyToConversation)
-    if let Err(e) = sms_proxy
-        .request_conversation(thread_id, 0, messages_per_page as i64)
-        .await
-    {
-        tracing::warn!("SMS plugin request_conversation failed (non-fatal): {}", e);
-    } else {
-        tracing::debug!(
-            "SMS plugin request_conversation fired for thread {} (cache priming)",
-            thread_id
-        );
-    }
-
-    // Fire Conversations interface request (provides per-message signals for UI)
-    tracing::debug!(
-        "Requesting conversation {} (messages 0-{})",
-        thread_id,
-        messages_per_page
-    );
-    if let Err(e) = conversations_proxy
-        .request_conversation(thread_id, 0, messages_per_page as i32)
-        .await
-    {
-        tracing::warn!("Failed to request conversation: {}", e);
-        return Message::SmsError(format!("Failed to request conversation: {}", e));
-    }
-
-    // Collect messages from signals until conversationLoaded, activity timeout, or hard timeout
-    // Use uid (unique message ID) as key for reliable deduplication
-    let mut messages_map: HashMap<i32, SmsMessage> = HashMap::new();
-    let mut total_message_count: Option<u64> = None;
-    let timeout = tokio::time::Duration::from_secs(MESSAGE_FETCH_TIMEOUT_SECS);
-    let activity_timeout = tokio::time::Duration::from_millis(SIGNAL_ACTIVITY_TIMEOUT_MS);
-    let check_interval = tokio::time::Duration::from_millis(TIMEOUT_CHECK_INTERVAL_MS);
-    let start_time = tokio::time::Instant::now();
-    let mut last_activity = tokio::time::Instant::now();
-    let mut loaded_signal_received = false;
-
-    loop {
-        tokio::select! {
-            biased;
-            // Check for conversationUpdated signals (highest priority)
-            Some(signal) = updated_stream.next() => {
-                match signal.args() {
-                    Ok(args) => {
-                        if let Some(msg) = parse_sms_message(&args.msg) {
-                            if msg.thread_id == thread_id {
-                                // Use uid as key for reliable deduplication
-                                messages_map.insert(msg.uid, msg);
-                                last_activity = tokio::time::Instant::now();
-                                tracing::debug!(
-                                    "Received message for thread {}, total: {}",
-                                    thread_id,
-                                    messages_map.len()
-                                );
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to parse conversationUpdated signal: {}", e);
-                    }
-                }
-            }
-            // Check for conversationLoaded signal
-            Some(signal) = loaded_stream.next() => {
-                match signal.args() {
-                    Ok(args) => {
-                        if args.conversation_id == thread_id {
-                            // Capture the total message count for pagination
-                            total_message_count = Some(args.message_count);
-                            loaded_signal_received = true;
-                            last_activity = tokio::time::Instant::now();
-                            tracing::info!(
-                                "Conversation {} loaded signal received, total {} messages, got {}",
-                                thread_id,
-                                args.message_count,
-                                messages_map.len()
-                            );
-                            // Don't break immediately - continue to drain buffered signals
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to parse conversationLoaded signal: {}", e);
-                    }
-                }
-            }
-            // Periodic timeout check
-            _ = tokio::time::sleep(check_interval) => {
-                let elapsed = start_time.elapsed();
-                let since_activity = last_activity.elapsed();
-
-                // Hard timeout
-                if elapsed >= timeout {
-                    tracing::warn!(
-                        "Hard timeout ({:?}) waiting for messages, got {} messages",
-                        timeout,
-                        messages_map.len()
-                    );
-                    break;
-                }
-
-                // Activity timeout: if we have messages and no activity for a while, we're done
-                // This prevents waiting the full 10s when signals stop coming
-                if !messages_map.is_empty() && since_activity >= activity_timeout {
-                    tracing::info!(
-                        "Activity timeout ({:?} since last signal), got {} messages",
-                        since_activity,
-                        messages_map.len()
-                    );
-                    break;
-                }
-
-                // If we received conversationLoaded and drained signals, we're done
-                if loaded_signal_received && since_activity >= tokio::time::Duration::from_millis(SIGNAL_DRAIN_TIMEOUT_MS) {
-                    tracing::info!(
-                        "Loaded signal received and signals drained, got {} messages",
-                        messages_map.len()
-                    );
-                    break;
-                }
-            }
-        }
-    }
-
-    // Convert map to sorted vector
-    let mut messages: Vec<SmsMessage> = messages_map.into_values().collect();
-    messages.sort_by(|a, b| a.date.cmp(&b.date));
-
-    tracing::info!(
-        "Final: Loaded {} messages for thread {} (total in conversation: {:?})",
-        messages.len(),
-        thread_id,
-        total_message_count
-    );
-    Message::MessagesLoaded(thread_id, messages, total_message_count)
-}
-
-/// Fallback message fetching using simple polling when signal subscription fails.
-async fn fetch_messages_fallback(
-    conversations_proxy: &ConversationsProxy<'_>,
-    sms_proxy: &SmsProxy<'_>,
-    thread_id: i64,
-    messages_per_page: u32,
-) -> Message {
-    // Fire SMS plugin request (primes daemon cache for replyToConversation)
-    if let Err(e) = sms_proxy
-        .request_conversation(thread_id, 0, messages_per_page as i64)
-        .await
-    {
-        tracing::warn!("SMS plugin request_conversation failed (non-fatal): {}", e);
-    }
-    // Fire Conversations interface request (provides data for polling)
-    if let Err(e) = conversations_proxy
-        .request_conversation(thread_id, 0, messages_per_page as i32)
-        .await
-    {
-        tracing::warn!("Failed to request conversation: {}", e);
-    }
-
-    // Simple polling fallback - poll all attempts to give phone time to sync
-    // Note: We don't stop early anymore - the phone may be slow to sync messages
-    let mut best_messages = Vec::new();
-    for attempt in 0..5 {
-        tokio::time::sleep(std::time::Duration::from_millis(
-            FALLBACK_POLLING_INTERVAL_MS,
-        ))
-        .await;
-
-        match conversations_proxy.active_conversations().await {
-            Ok(values) => {
-                let messages = parse_messages(values, thread_id);
-                tracing::info!(
-                    "Fallback attempt {}: Found {} messages for thread {}",
-                    attempt + 1,
-                    messages.len(),
-                    thread_id
-                );
-                // Keep the best result
-                if messages.len() > best_messages.len() {
-                    best_messages = messages;
-                }
-            }
-            Err(e) => {
-                tracing::warn!("Failed to get messages on attempt {}: {}", attempt + 1, e);
-            }
-        }
-    }
-
-    tracing::info!(
-        "Fallback complete: {} messages for thread {}",
-        best_messages.len(),
-        thread_id
-    );
-    // Fallback doesn't receive conversationLoaded signal, so total_count is unknown
-    Message::MessagesLoaded(thread_id, best_messages, None)
-}
-
 /// Fetch older messages for pagination (starting from a given offset).
 pub async fn fetch_older_messages_async(
     conn: Arc<Mutex<Connection>>,
@@ -836,6 +571,123 @@ pub async fn request_attachment_async(
         }
 
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    }
+}
+
+/// Prefetch SMS conversations for a device (best-effort, fire-and-forget).
+///
+/// Calls `activeConversations()` once and returns whatever is cached.
+/// Does NOT start signal subscriptions or fire `requestAllConversationThreads()`.
+/// Used by `SelectDevice` to have conversations ready before the user opens SMS.
+pub async fn prefetch_conversations_async(
+    conn: Arc<Mutex<Connection>>,
+    device_id: String,
+) -> Message {
+    let conn = conn.lock().await;
+    let device_path = format!("{}/devices/{}", kdeconnect_dbus::BASE_PATH, device_id);
+
+    let conversations_proxy = match ConversationsProxy::builder(&conn)
+        .path(device_path.as_str())
+        .ok()
+        .map(|b| b.build())
+    {
+        Some(fut) => match fut.await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::debug!("SMS prefetch: failed to create proxy: {}", e);
+                return Message::SmsPrefetchReady(device_id, Vec::new());
+            }
+        },
+        None => {
+            tracing::debug!("SMS prefetch: failed to build proxy path");
+            return Message::SmsPrefetchReady(device_id, Vec::new());
+        }
+    };
+
+    match conversations_proxy.active_conversations().await {
+        Ok(values) => {
+            let mut conversations = parse_conversations(values);
+            conversations.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+            tracing::debug!(
+                "SMS prefetch: {} conversations for device {}",
+                conversations.len(),
+                device_id
+            );
+            Message::SmsPrefetchReady(device_id, conversations)
+        }
+        Err(e) => {
+            tracing::debug!("SMS prefetch: activeConversations failed: {}", e);
+            Message::SmsPrefetchReady(device_id, Vec::new())
+        }
+    }
+}
+
+/// Verify that an optimistic sent message was actually delivered.
+///
+/// Waits 10 seconds (phone needs time to echo the message back to the daemon),
+/// then checks `activeConversations()` to see if the conversation's last message
+/// contains the sent body. Best-effort: returns `confirmed: true` on D-Bus errors
+/// to avoid false alarms.
+pub async fn verify_sent_message_async(
+    conn: Arc<Mutex<Connection>>,
+    device_id: String,
+    thread_id: i64,
+    sent_body: String,
+) -> Message {
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    let conn = conn.lock().await;
+    let device_path = format!("{}/devices/{}", kdeconnect_dbus::BASE_PATH, device_id);
+
+    let conversations_proxy = match ConversationsProxy::builder(&conn)
+        .path(device_path.as_str())
+        .ok()
+        .map(|b| b.build())
+    {
+        Some(fut) => match fut.await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::debug!("SMS verify: failed to create proxy: {}", e);
+                return Message::SmsVerifyResult {
+                    thread_id,
+                    confirmed: true,
+                };
+            }
+        },
+        None => {
+            return Message::SmsVerifyResult {
+                thread_id,
+                confirmed: true,
+            };
+        }
+    };
+
+    match conversations_proxy.active_conversations().await {
+        Ok(values) => {
+            let conversations = parse_conversations(values);
+            let confirmed = conversations
+                .iter()
+                .find(|c| c.thread_id == thread_id)
+                .map(|c| c.last_message.contains(&sent_body))
+                .unwrap_or(false);
+            tracing::debug!(
+                "SMS verify: thread {} confirmed={}",
+                thread_id,
+                confirmed
+            );
+            Message::SmsVerifyResult {
+                thread_id,
+                confirmed,
+            }
+        }
+        Err(e) => {
+            tracing::debug!("SMS verify: activeConversations failed: {}", e);
+            // Best-effort: don't false-alarm on D-Bus errors
+            Message::SmsVerifyResult {
+                thread_id,
+                confirmed: true,
+            }
+        }
     }
 }
 
