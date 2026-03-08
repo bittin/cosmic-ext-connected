@@ -2,24 +2,18 @@
 
 A phone connectivity applet for the COSMIC™ desktop, powered by KDE Connect.
 
-Connected links your Android phone to your COSMIC desktop, enabling SMS messaging, file sharing, notifications, media control, and more—all through a native libcosmic interface.
-
 ![Connected applet showing device page](screenshots/connected-applet.png)
 
 ## Features
 
 - **Device Management** - Pair, unpair, and monitor connected devices
-- **SMS Messaging** - View conversations, read messages, reply, and compose new messages with contact lookup
-- **File Sharing** - Send files and URLs to your phone
-- **File Receive Notifications** - Get notified when files are received from your phone
+- **SMS Messaging** - View conversations, reply, and compose new messages with contact lookup
+- **File Sharing** - Send and receive files and URLs, with desktop notifications
 - **Clipboard Sync** - Send clipboard content to your device
-- **Notifications** - View and dismiss phone notifications from your desktop
-- **Battery Status** - Monitor phone battery level and charging state
-- **Media Controls** - Control music playback on your phone (play/pause, next/previous, volume)
-- **Find My Phone** - Ring your phone to locate it
-- **SMS Desktop Notifications** - Get notified when new SMS messages arrive (with privacy controls)
-- **Call Notifications** - Get notified of incoming and missed calls (with privacy controls)
-- **Ping** - Send a ping to locate your phone
+- **Notifications** - View and dismiss phone notifications; desktop alerts for SMS and calls (with privacy controls)
+- **Battery Status** - Monitor battery level and charging state
+- **Media Controls** - Control music playback (play/pause, next/previous, volume)
+- **Find My Phone** - Ring or ping your phone to locate it
 
 ## Requirements
 
@@ -32,9 +26,9 @@ Connected links your Android phone to your COSMIC desktop, enabling SMS messagin
 
 ### KDE Connect on desktop and phone
 
-Connected requires that the KDE Connect service be installed on your desktop and your Android phone. This step is required for both the Flatpak and source installs of Connected.
+Connected requires KDE Connect on both your desktop and Android phone.
 
-1. **Install KDE Connect to desktop:**
+1. **Desktop:**
    ```bash
    # Debian/Ubuntu/Pop!_OS
    sudo apt install kdeconnect
@@ -46,8 +40,7 @@ Connected requires that the KDE Connect service be installed on your desktop and
    sudo pacman -S kdeconnect
    ```
 
-2. **Install KDE Connect to phone:**
-   Install the KDE Connect Android app from the Google Play store. The KDE Connect app is required to pair your device to your desktop and to communicate with Connected via the KDE Connect service.
+2. **Phone:** Install the KDE Connect app from [Google Play](https://play.google.com/store/apps/details?id=org.kde.kdeconnect_tp) or [F-Droid](https://f-droid.org/packages/org.kde.kdeconnect_tp/).
 
 ### Flatpak
 
@@ -63,11 +56,7 @@ Connected requires that the KDE Connect service be installed on your desktop and
    flatpak-builder --user --install --force-clean build-dir io.github.nwxnw.cosmic-ext-connected.json
    ```
 
-3. **Add to panel:**
-   - Open: Settings → Desktop → Panel → Applets → Add Applet
-   - Find "Connected" and add it to your panel
-
-> **Note:** The Flatpak sandbox requires KDE Connect daemon to be installed on the host system.
+3. **Add to panel:** Settings → Desktop → Panel → Applets → Add Applet → "Connected"
 
 ### From Source
 
@@ -93,13 +82,11 @@ Connected requires that the KDE Connect service be installed on your desktop and
 
 3. **Install to system:**
    ```bash
-   sudo just install-only
+   sudo just install
    killall cosmic-panel  # Restart panel to pick up new applet
    ```
 
-4. **Add to panel:**
-   - Open: Settings → Desktop → Panel → Applets → Add Applet
-   - Find "Connected" and add it to your panel
+4. **Add to panel:** Settings → Desktop → Panel → Applets → Add Applet → "Connected"
 
 ### Uninstall
 
@@ -109,88 +96,32 @@ sudo just uninstall
 
 ## Usage
 
-1. Install the KDE Connect app on your Android phone
-2. Ensure both devices are on the same network
-3. Click the Connected applet in your panel
-4. Your phone should appear in the device list
-5. Click on your phone and select "Pair" to establish a connection
-6. Accept the pairing request on your phone
-7. CRITICAL: After pairing your device, you must enable requested permissions in the KDE Connect app on your phone in order to allow Connected to send and receive messages and access your Contacts list.
+1. Ensure both devices are on the same network
+2. Click the Connected applet in your panel — your phone should appear
+3. Click your phone and select "Pair", then accept on your phone
+4. **Important:** After pairing, enable the requested permissions in the KDE Connect app on your phone (SMS, Contacts, etc.)
 
 ## Configuration
 
-Settings are accessible through the applet's settings menu (gear icon). Options include:
+Settings are accessible via the gear icon in the applet. Options include:
 
 - **Show battery percentage** - Display battery level in device list
 - **Show offline devices** - Show paired devices that aren't currently connected
-- **File notifications** - Enable desktop notifications for received files
-- **SMS notifications** - Enable desktop notifications for incoming SMS
-  - Show sender name (privacy option)
-  - Show message content (privacy option)
-- **Call notifications** - Enable desktop notifications for incoming/missed calls
-  - Show contact name (privacy option)
-  - Show phone number (privacy option)
-
-Configuration is stored in `~/.config/cosmic/io.github.nwxnw.cosmic-ext-connected/v6/`
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Connected Applet (Rust/libcosmic)                              │
-└──────────────────────┬──────────────────────────────────────────┘
-                       │ D-Bus
-                       ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  kdeconnectd (KDE Connect daemon)                               │
-└──────────────────────┬──────────────────────────────────────────┘
-                       │ Network (TCP/UDP)
-                       ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Android Phone (KDE Connect app)                                │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-Connected acts as a native UI frontend to the KDE Connect daemon, communicating via D-Bus. The daemon handles all network connectivity, encryption, and protocol details.
-
-## Known Limitations
-
-- **Group MMS replies create a new thread on the sender's phone.** Messages are delivered to all recipients in the correct thread, but the sender's phone shows the reply in a new thread. This is a KDE Connect protocol limitation — the send packet does not include a thread ID, so Android cannot associate the outgoing message with the existing group thread. The same behavior occurs in the native KDE Connect SMS desktop app. 1-on-1 replies are unaffected. See [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) for details.
-
-## Building
-
-```bash
-# Debug build
-cargo build
-
-# Release build
-cargo build --release
-
-# Run tests
-cargo test
-
-# Check formatting
-cargo fmt --check
-
-# Run clippy lints
-cargo clippy
-```
+- **File notifications** - Desktop notifications for received files
+- **SMS notifications** - Desktop notifications for incoming SMS (with sender/content privacy options)
+- **Call notifications** - Desktop notifications for incoming/missed calls (with name/number privacy options)
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit issues and pull requests.
+Contributions welcome! Please submit issues and pull requests.
 
-### Development Tips
-
-- Debug logging: `RUST_LOG=cosmic_ext_connected=debug cargo run`
-- See `CLAUDE.md` for detailed development documentation
+See `CLAUDE.md` for detailed development documentation.
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
+GNU General Public License v3.0 - see [LICENSE](LICENSE).
 
 ## Acknowledgments
 
-- [KDE Connect](https://kdeconnect.kde.org/) - The powerful daemon that makes this possible
-- [System76](https://system76.com/) - For creating the COSMIC desktop and libcosmic
-- [libcosmic](https://github.com/pop-os/libcosmic) - The COSMIC UI toolkit
+- [KDE Connect](https://kdeconnect.kde.org/) - The daemon that makes this possible
+- [System76](https://system76.com/) / [libcosmic](https://github.com/pop-os/libcosmic) - The COSMIC desktop and UI toolkit
