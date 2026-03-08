@@ -1,6 +1,6 @@
 //! SMS view components for conversation list and message threads.
 
-use crate::app::{LoadingPhase, Message, SmsLoadingState, OPTIMISTIC_MESSAGE_UID};
+use crate::app::{LoadingPhase, Message, SmsLoadingState};
 use crate::fl;
 use crate::views::helpers::{format_timestamp, WIDE_POPUP_WIDTH};
 use base64::Engine;
@@ -433,20 +433,7 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
                 );
             }
 
-            // Show "Sending..." indicator for optimistic (unverified) sent messages
-            let is_pending = msg.uid == OPTIMISTIC_MESSAGE_UID;
-            if is_pending {
-                bubble_content = bubble_content.push(
-                    row![
-                        widget::icon::from_name("emblem-synchronizing-symbolic").size(12),
-                        text::caption(fl!("sms-sending")),
-                    ]
-                    .spacing(sp.space_xxxs)
-                    .align_y(Alignment::Center),
-                );
-            } else {
-                bubble_content = bubble_content.push(text::caption(time_str));
-            }
+            bubble_content = bubble_content.push(text::caption(time_str));
 
             // Use highlighted style when pressed for high contrast visual feedback
             let bubble: Element<Message> = if is_pressed {
@@ -567,6 +554,19 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
     ]
     .spacing(sp.space_xxxs)
     .width(Length::Fill);
+
+    if params.sms_sending {
+        thread_column = thread_column.push(
+            applet::padded_control(
+                row![
+                    widget::icon::from_name("emblem-synchronizing-symbolic").size(14),
+                    text::caption(fl!("sms-sending")),
+                ]
+                .spacing(sp.space_xxxs)
+                .align_y(Alignment::Center),
+            ),
+        );
+    }
 
     if let Some(msg) = params.status_message {
         thread_column = thread_column.push(

@@ -37,13 +37,9 @@ run-standalone:
 run-debug:
     RUST_LOG=cosmic_ext_connected=debug cargo run -p cosmic-ext-connected -- --standalone
 
-# Install the applet to the system (builds first, requires sudo)
-# Note: May fail under sudo if cargo not in PATH. Use install-only instead.
-install: build-release install-only
-
-# Install pre-built applet to system (requires sudo, no build)
-# Usage: cargo build --release && sudo ~/.cargo/bin/just install-only
-install-only:
+# Install pre-built applet to system (requires sudo)
+# Usage: cargo build --release && sudo just install
+install:
     install -Dm755 target/release/{{applet_name}} {{bindir}}/{{applet_name}}
     install -Dm644 data/{{desktop_file}} {{sharedir}}/applications/{{desktop_file}}
     install -Dm644 data/{{metainfo_file}} {{sharedir}}/metainfo/{{metainfo_file}}

@@ -19,7 +19,7 @@ use crate::media::{
 use crate::sms::{
     conversation_list_subscription, fetch_conversations_async, fetch_older_messages_async,
     prefetch_conversations_async, request_attachment_async, send_new_sms_async, send_sms_async,
-    verify_sent_message_async, view_conversation_list, view_message_thread, view_new_message,
+    view_conversation_list, view_message_thread, view_new_message,
     ConversationListParams, MessageThreadParams, NewMessageParams,
 };
 use crate::subscriptions::{
@@ -50,10 +50,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use zbus::Connection;
-
-/// Sentinel UID for optimistic sent message bubbles.
-/// Real Android message UIDs are positive integers; -1 indicates pending verification.
-pub const OPTIMISTIC_MESSAGE_UID: i32 = -1;
 
 /// Messages that drive the applet's state changes.
 #[derive(Debug, Clone)]
@@ -173,10 +169,8 @@ pub enum Message {
     SmsComposeInput(String),
     /// Send SMS in current thread
     SendSms,
-    /// SMS send operation completed (Ok contains the sent message body for optimistic update)
+    /// SMS send operation completed
     SmsSendResult(Result<String, String>),
-    /// Verification result for optimistic sent message
-    SmsVerifyResult { thread_id: i64, confirmed: bool },
     /// Open new message compose view
     OpenNewMessage,
     /// Close new message view
@@ -470,6 +464,8 @@ pub struct ConnectApplet {
     sms_compose_text: String,
     /// Whether SMS is currently being sent
     sms_sending: bool,
+    /// Body text of message being sent (for matching confirmed delivery signal)
+    sms_sending_body: Option<String>,
 
     // Message pagination state
     /// Number of messages currently loaded for pagination offset
@@ -678,6 +674,7 @@ impl Application for ConnectApplet {
             conversations_displayed: 10,
             sms_compose_text: String::new(),
             sms_sending: false,
+            sms_sending_body: None,
             // Message pagination state
             messages_loaded_count: 0,
             messages_has_more: true,
@@ -1235,6 +1232,7 @@ impl Application for ConnectApplet {
                 self.conversation_list_subscription_active = false;
                 self.sms_compose_text.clear();
                 self.sms_sending = false;
+                self.sms_sending_body = None;
             }
             Message::OpenConversation(thread_id) => {
                 // Guard: need D-Bus connection and device ID for the subscription
@@ -1295,6 +1293,7 @@ impl Application for ConnectApplet {
                 self.messages.clear();
                 self.sms_compose_text.clear();
                 self.sms_sending = false;
+                self.sms_sending_body = None;
                 self.message_sync_active = false;
 
                 // Clear subscription-based loading state
@@ -1708,6 +1707,15 @@ impl Application for ConnectApplet {
                     );
                 }
 
+                // Check if this confirms our pending sent message
+                let confirmed_send = self.sms_sending_body.is_some()
+                    && message.message_type == MessageType::Sent
+                    && self.sms_sending_body.as_deref() == Some(message.body.as_str());
+                if confirmed_send {
+                    tracing::info!("Confirmed delivery of sent message uid={}", message.uid);
+                    self.sms_sending_body = None;
+                }
+
                 // Insert message in sorted order by date
                 let insert_pos = self
                     .messages
@@ -1728,9 +1736,14 @@ impl Application for ConnectApplet {
                     self.message_sync_active = true;
                 }
 
-                // Defer scroll until ConversationStoreLoaded to prevent jarring jumps
-                // during incremental loading. The first scroll happens when the local
-                // store read completes; the final scroll when the phone response finishes.
+                // Scroll to bottom when a sent message is confirmed;
+                // otherwise defer scroll to ConversationStoreLoaded
+                if confirmed_send {
+                    return scrollable::snap_to(
+                        widget::Id::new("message-thread"),
+                        scrollable::RelativeOffset::END,
+                    );
+                }
                 return cosmic::app::Task::none();
             }
             Message::ConversationStoreLoaded { thread_id, total_count } => {
@@ -1850,6 +1863,7 @@ impl Application for ConnectApplet {
                     if !self.sms_compose_text.is_empty() && !self.sms_sending {
                         let message_text = self.sms_compose_text.clone();
                         self.sms_sending = true;
+                        self.sms_sending_body = Some(message_text.clone());
                         tracing::info!(
                             "Dispatching send_sms_async via replyToConversation for thread_id={}",
                             thread_id
@@ -1877,7 +1891,6 @@ impl Application for ConnectApplet {
                     Ok(sent_body) => {
                         tracing::info!("SMS sent successfully");
                         self.sms_compose_text.clear();
-                        self.status_message = Some(fl!("sms-sent"));
 
                         // Update conversation list preview so it reflects the new message
                         // when user navigates back
@@ -1892,87 +1905,23 @@ impl Application for ConnectApplet {
                                 .iter_mut()
                                 .find(|c| c.thread_id == thread_id)
                             {
-                                conv.last_message = sent_body.clone();
+                                conv.last_message = sent_body;
                                 conv.timestamp = now_ms;
                             }
                             // Re-sort conversations by timestamp (newest first)
                             self.conversations
                                 .sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-
-                            // Add optimistic bubble to message thread
-                            let optimistic = SmsMessage {
-                                body: sent_body.clone(),
-                                addresses: self
-                                    .current_thread_addresses
-                                    .clone()
-                                    .unwrap_or_default(),
-                                date: now_ms,
-                                message_type: MessageType::Sent,
-                                read: true,
-                                thread_id,
-                                uid: OPTIMISTIC_MESSAGE_UID,
-                                sub_id: self.current_thread_sub_id.unwrap_or(-1),
-                                attachments: vec![],
-                            };
-                            self.messages.push(optimistic);
-                            self.known_message_ids.insert(OPTIMISTIC_MESSAGE_UID);
-
-                            // Build batch: scroll to bottom, clear status after delay, verify delivery
-                            let mut tasks = vec![
-                                scrollable::snap_to(
-                                    widget::Id::new("message-thread"),
-                                    scrollable::RelativeOffset::END,
-                                ),
-                                cosmic::app::Task::perform(
-                                    async {
-                                        tokio::time::sleep(std::time::Duration::from_secs(3))
-                                            .await;
-                                    },
-                                    |_| cosmic::Action::App(Message::ClearStatusMessage),
-                                ),
-                            ];
-
-                            // Spawn verification to confirm delivery after ~10s
-                            if let (Some(conn), Some(device_id)) =
-                                (&self.dbus_connection, &self.sms_device_id)
-                            {
-                                tasks.push(cosmic::app::Task::perform(
-                                    verify_sent_message_async(
-                                        conn.clone(),
-                                        device_id.clone(),
-                                        thread_id,
-                                        sent_body,
-                                    ),
-                                    cosmic::Action::App,
-                                ));
-                            }
-
-                            return cosmic::app::Task::batch(tasks);
                         }
+
+                        return self.set_transient_status(fl!("sms-sent"));
                     }
                     Err(err) => {
                         tracing::error!("SMS send error: {}", err);
+                        self.sms_sending_body = None;
                         return self
                             .set_transient_status(format!("{}: {}", fl!("sms-failed"), err));
                     }
                 }
-            }
-            Message::SmsVerifyResult {
-                thread_id,
-                confirmed,
-            } => {
-                if self.current_thread_id == Some(thread_id) && confirmed {
-                    // Replace optimistic UID with 0 to clear pending indicator
-                    if let Some(msg) = self
-                        .messages
-                        .iter_mut()
-                        .find(|m| m.uid == OPTIMISTIC_MESSAGE_UID)
-                    {
-                        msg.uid = 0;
-                    }
-                }
-                // If not confirmed, the optimistic bubble stays with uid -1
-                // (pending indicator remains as a subtle signal something went wrong)
             }
             // New message
             Message::OpenNewMessage => {
