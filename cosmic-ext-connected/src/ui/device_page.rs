@@ -36,7 +36,7 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
                 text::caption(device.device_type.clone()),
             ]
             .spacing(sp.space_xxxs),
-            widget::horizontal_space(),
+            widget::space::horizontal(),
         ]
         .spacing(sp.space_s)
         .align_y(Alignment::Center);
@@ -76,7 +76,7 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         let sms_row = row![
             icon::from_name("mail-message-new-symbolic").size(24),
             text::body(fl!("sms-messages")),
-            widget::horizontal_space(),
+            widget::space::horizontal(),
             icon::from_name("go-next-symbolic").size(16),
         ]
         .spacing(sp.space_xs)
@@ -89,7 +89,7 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         let sendto_row = row![
             icon::from_name("document-send-symbolic").size(24),
             text::body(fl!("send-to", device = device.device_type.as_str())),
-            widget::horizontal_space(),
+            widget::space::horizontal(),
             icon::from_name("go-next-symbolic").size(16),
         ]
         .spacing(sp.space_xs)
@@ -105,7 +105,7 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         let media_row = row![
             icon::from_name("multimedia-player-symbolic").size(24),
             text::body(fl!("media-controls")),
-            widget::horizontal_space(),
+            widget::space::horizontal(),
             icon::from_name("go-next-symbolic").size(16),
         ]
         .spacing(sp.space_xs)
@@ -118,7 +118,7 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         let find_row = row![
             icon::from_name("audio-volume-high-symbolic").size(24),
             text::body(fl!("find-phone")),
-            widget::horizontal_space(),
+            widget::space::horizontal(),
         ]
         .spacing(sp.space_xs)
         .align_y(Alignment::Center);
@@ -131,7 +131,7 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
             .into()
     } else if !device.is_paired {
         // Not paired - show nothing (pairing section will be shown below)
-        widget::Space::new(Length::Shrink, Length::Shrink).into()
+        widget::Space::new().into()
     } else {
         text::caption(fl!("device-must-be-connected")).into()
     };
@@ -150,7 +150,7 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
             .class(cosmic::theme::Container::Card)
             .into()
     } else {
-        widget::Space::new(Length::Shrink, Length::Shrink).into()
+        widget::Space::new().into()
     };
 
     let divider = || applet::padded_control(widget::divider::horizontal::default());
@@ -217,18 +217,18 @@ fn build_status_row<'a>(device: &'a DeviceInfo) -> Element<'a, Message> {
                 .into()
             } else {
                 // Battery level is -1 (unknown) - don't show
-                widget::Space::new(Length::Shrink, Length::Shrink).into()
+                widget::Space::new().into()
             }
         } else {
             // No battery info available - empty space
-            widget::Space::new(Length::Shrink, Length::Shrink).into()
+            widget::Space::new().into()
         };
 
     row![
         connected_element,
-        widget::horizontal_space(),
+        widget::space::horizontal(),
         paired_element,
-        widget::horizontal_space(),
+        widget::space::horizontal(),
         battery_element,
     ]
     .align_y(Alignment::Center)
@@ -342,7 +342,7 @@ fn build_notifications_section<'a>(device: &'a DeviceInfo) -> Element<'a, Messag
     let sp = cosmic::theme::spacing();
 
     if device.notifications.is_empty() {
-        return widget::Space::new(Length::Shrink, Length::Shrink).into();
+        return widget::Space::new().into();
     }
 
     let mut notif_column = column![text::heading(format!(
@@ -378,7 +378,7 @@ fn build_notification_row<'a>(
     let mut notif_row = row![
         icon::from_name("notification-symbolic").size(20),
         notif_content,
-        widget::horizontal_space(),
+        widget::space::horizontal(),
     ]
     .spacing(sp.space_xxs)
     .align_y(Alignment::Center);

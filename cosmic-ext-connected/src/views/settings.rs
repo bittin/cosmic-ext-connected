@@ -51,7 +51,7 @@ pub fn view_settings(config: &Config) -> Element<'_, Message> {
     let notif_nav_row = row![
         widget::icon::from_name("preferences-system-notifications-symbolic").size(24),
         text::body(fl!("notification-settings")),
-        widget::horizontal_space(),
+        widget::space::horizontal(),
         widget::icon::from_name("go-next-symbolic").size(16),
     ]
     .spacing(sp.space_xs)

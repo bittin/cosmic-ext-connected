@@ -22,7 +22,7 @@ pub fn view<'a>(
     let header = applet::padded_control(
         row![
             text::heading(fl!("devices")),
-            widget::horizontal_space(),
+            widget::space::horizontal(),
             widget::button::icon(icon::from_name("view-refresh-symbolic"))
                 .on_press(Message::RefreshDevices),
             widget::button::icon(icon::from_name("emblem-system-symbolic"))
@@ -143,7 +143,7 @@ fn device_row<'a>(device: &'a DeviceInfo, config: &'a Config) -> Element<'a, Mes
     }
 
     // Add chevron indicator to show it's clickable
-    row_content = row_content.push(widget::horizontal_space());
+    row_content = row_content.push(widget::space::horizontal());
     row_content = row_content.push(icon::from_name("go-next-symbolic").size(16));
 
     applet::menu_button(row_content)

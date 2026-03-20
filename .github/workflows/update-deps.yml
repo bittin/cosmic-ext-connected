@@ -1,0 +1,69 @@
+name: Update COSMIC dependencies
+
+on:
+  schedule:
+    # Weekly on Mondays at 09:00 UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  update-deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev wayland-protocols libwayland-dev
+
+      - name: Update COSMIC git dependencies
+        run: |
+          cargo update -p libcosmic
+          cargo update -p cosmic-panel-config
+
+      - name: Check for changes
+        id: diff
+        run: |
+          if git diff --quiet Cargo.lock; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build check
+        if: steps.diff.outputs.changed == 'true'
+        run: cargo build
+
+      - name: Clippy check
+        if: steps.diff.outputs.changed == 'true'
+        run: cargo clippy -- -D warnings
+
+      - name: Extract updated versions
+        if: steps.diff.outputs.changed == 'true'
+        id: versions
+        run: |
+          LIBCOSMIC=$(grep -A2 'name = "libcosmic"' Cargo.lock | grep 'source' | grep -oP '#\K[a-f0-9]+')
+          PANEL=$(grep -A2 'name = "cosmic-panel-config"' Cargo.lock | grep 'source' | grep -oP '#\K[a-f0-9]+')
+          echo "libcosmic=${LIBCOSMIC:0:8}" >> "$GITHUB_OUTPUT"
+          echo "panel=${PANEL:0:8}" >> "$GITHUB_OUTPUT"
+
+      - name: Create pull request
+        if: steps.diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "Update COSMIC git dependencies"
+          branch: deps/update-cosmic
+          delete-branch: true
+          title: "Update COSMIC git dependencies"
+          body: |
+            Automated weekly update of COSMIC ecosystem git dependencies.
+
+            **Updated commits:**
+            - `libcosmic` → `${{ steps.versions.outputs.libcosmic }}`
+            - `cosmic-panel-config` → `${{ steps.versions.outputs.panel }}`
+
+            Build and clippy checks passed.

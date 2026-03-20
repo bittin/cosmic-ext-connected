@@ -27,16 +27,12 @@ use crate::subscriptions::{
     sms_notification_subscription,
 };
 use crate::ui;
-use crate::views::helpers::{
-    popup_container, DEFAULT_POPUP_WIDTH, POPUP_MAX_HEIGHT, WIDE_POPUP_WIDTH,
-};
 use crate::views::send_to::{view_send_to, SendToParams};
 use crate::views::settings::{view_notification_settings, view_settings};
 use cosmic::app::Core;
 use cosmic::iced::platform_specific::shell::wayland::commands::popup::{destroy_popup, get_popup};
 use cosmic::iced::widget::{column, scrollable};
 use cosmic::iced::{clipboard, Alignment, Subscription};
-use cosmic::iced_core::layout::Limits;
 use cosmic::iced_runtime::core::window;
 use cosmic::widget;
 use cosmic::{Application, Element};
@@ -729,19 +725,13 @@ impl Application for ConnectApplet {
                     let new_id = window::Id::unique();
                     self.popup.replace(new_id);
 
-                    let mut popup_settings = self.core.applet.get_popup_settings(
+                    let popup_settings = self.core.applet.get_popup_settings(
                         self.core.main_window_id().unwrap(),
                         new_id,
                         None,
                         None,
                         None,
                     );
-                    // Override size limits - use wide width as max to accommodate all views
-                    popup_settings.positioner.size_limits = Limits::NONE
-                        .min_height(1.0)
-                        .min_width(1.0)
-                        .max_width(WIDE_POPUP_WIDTH)
-                        .max_height(POPUP_MAX_HEIGHT);
 
                     get_popup(popup_settings)
                 };
@@ -1554,7 +1544,7 @@ impl Application for ConnectApplet {
 
                             return scrollable::snap_to(
                                 widget::Id::new("message-thread"),
-                                scrollable::RelativeOffset { x: 0.0, y: relative_y },
+                                scrollable::RelativeOffset { x: Some(0.0), y: Some(relative_y) },
                             );
                         }
                     } else {
@@ -1741,7 +1731,7 @@ impl Application for ConnectApplet {
                 if confirmed_send {
                     return scrollable::snap_to(
                         widget::Id::new("message-thread"),
-                        scrollable::RelativeOffset::END,
+                        scrollable::RelativeOffset::END.into(),
                     );
                 }
                 return cosmic::app::Task::none();
@@ -1775,7 +1765,7 @@ impl Application for ConnectApplet {
                 if !self.messages.is_empty() {
                     return scrollable::snap_to(
                         widget::Id::new("message-thread"),
-                        scrollable::RelativeOffset::END,
+                        scrollable::RelativeOffset::END.into(),
                     );
                 }
             }
@@ -1828,7 +1818,7 @@ impl Application for ConnectApplet {
                 if !self.messages.is_empty() {
                     return scrollable::snap_to(
                         widget::Id::new("message-thread"),
-                        scrollable::RelativeOffset::END,
+                        scrollable::RelativeOffset::END.into(),
                     );
                 }
             }
@@ -2008,17 +1998,13 @@ impl Application for ConnectApplet {
                         self.new_message_recipient_input.clear();
                         self.new_message_body.clear();
                         self.view_mode = ViewMode::ConversationList;
-                        // Refresh conversations to show the new thread
-                        // Show loading state since new conversation won't be in cache
-                        if let (Some(conn), Some(device_id)) =
-                            (&self.dbus_connection, &self.sms_device_id)
-                        {
-                            self.sms_loading_state =
-                                SmsLoadingState::LoadingConversations(LoadingPhase::Requesting);
-                            return cosmic::app::Task::perform(
-                                fetch_conversations_async(conn.clone(), device_id.clone()),
-                                cosmic::Action::App,
-                            );
+                        // Enable subscription to catch the new conversation when the phone
+                        // syncs back. The subscription listens over a longer window than a
+                        // one-shot fetch, giving the phone time to process the send and
+                        // emit a conversationCreated signal.
+                        if self.sms_device_id.is_some() {
+                            self.conversation_list_subscription_active = true;
+                            self.conversation_sync_active = true;
                         }
                     }
                     Err(err) => {
@@ -2466,16 +2452,6 @@ impl Application for ConnectApplet {
     }
 
     fn view_window(&self, _id: window::Id) -> Element<'_, Self::Message> {
-        // Determine popup width based on view mode
-        // SMS and media views need wider popup for message bubbles
-        let popup_width = match self.view_mode {
-            ViewMode::ConversationList
-            | ViewMode::MessageThread
-            | ViewMode::NewMessage
-            | ViewMode::MediaControls => WIDE_POPUP_WIDTH,
-            _ => DEFAULT_POPUP_WIDTH,
-        };
-
         let sp = cosmic::theme::spacing();
 
         // Handle error state first
@@ -2490,7 +2466,7 @@ impl Application for ConnectApplet {
             )
             .padding(sp.space_s)
             .into();
-            return popup_container(content, popup_width, self.core.applet.anchor);
+            return self.core.applet.popup_container(content).into();
         }
 
         // Handle loading state
@@ -2500,7 +2476,7 @@ impl Application for ConnectApplet {
             )
             .padding(sp.space_s)
             .into();
-            return popup_container(content, popup_width, self.core.applet.anchor);
+            return self.core.applet.popup_container(content).into();
         }
 
         // Route to appropriate view based on view mode
@@ -2590,7 +2566,7 @@ impl Application for ConnectApplet {
             }
         };
 
-        popup_container(content, popup_width, self.core.applet.anchor)
+        self.core.applet.popup_container(content).into()
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
@@ -2636,9 +2612,9 @@ impl Application for ConnectApplet {
         // This provides real-time UI updates as conversations arrive from the phone
         if self.conversation_list_subscription_active {
             if let Some(device_id) = self.sms_device_id.clone() {
-                subscriptions.push(Subscription::run_with_id(
+                subscriptions.push(Subscription::run_with(
                     ("conversation_list", device_id.clone()),
-                    conversation_list_subscription(device_id),
+                    |(_, device_id)| conversation_list_subscription(device_id.clone()),
                 ));
             }
         }
@@ -2651,9 +2627,11 @@ impl Application for ConnectApplet {
                 (self.loading_thread_id, self.sms_device_id.clone())
             {
                 let messages_per_page = self.config.messages_per_page;
-                subscriptions.push(Subscription::run_with_id(
-                    ("conversation_messages", thread_id),
-                    conversation_message_subscription(thread_id, device_id, messages_per_page),
+                subscriptions.push(Subscription::run_with(
+                    ("conversation_messages", thread_id, device_id.clone(), messages_per_page),
+                    |(_, thread_id, device_id, messages_per_page)| {
+                        conversation_message_subscription(*thread_id, device_id.clone(), *messages_per_page)
+                    },
                 ));
             }
         }
@@ -2664,7 +2642,7 @@ impl Application for ConnectApplet {
         Subscription::batch(subscriptions)
     }
 
-    fn style(&self) -> Option<cosmic::iced_runtime::Appearance> {
+    fn style(&self) -> Option<cosmic::iced::theme::Style> {
         Some(cosmic::applet::style())
     }
 }

@@ -2,7 +2,7 @@
 
 use crate::app::{LoadingPhase, Message, SmsLoadingState};
 use crate::fl;
-use crate::views::helpers::{format_timestamp, WIDE_POPUP_WIDTH};
+use crate::views::helpers::format_timestamp;
 use base64::Engine;
 use cosmic::applet;
 use cosmic::iced::advanced::image::Handle as ImageHandle;
@@ -191,7 +191,7 @@ pub fn view_conversation_list(params: ConversationListParams<'_>) -> Element<'_,
 
     let header = applet::padded_control(
         header_row
-            .push(widget::horizontal_space())
+            .push(widget::space::horizontal())
             .push(new_msg_btn),
     );
 
@@ -257,7 +257,7 @@ pub fn view_conversation_list(params: ConversationListParams<'_>) -> Element<'_,
             let conv_row = applet::menu_button(
                 row![
                     column![text::body(display_name), snippet_element,].spacing(2),
-                    widget::horizontal_space(),
+                    widget::space::horizontal(),
                     text::caption(date_str),
                     widget::icon::from_name("go-next-symbolic").size(16),
                 ]
@@ -366,7 +366,7 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
     }
 
     let header = applet::padded_control(
-        header_row.push(widget::horizontal_space()),
+        header_row.push(widget::space::horizontal()),
     );
 
     // Show loading indicator only when loading AND no messages yet
@@ -387,7 +387,7 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
     } else {
         // Build message list with improved styling
         // Max width for bubbles is ~75% of popup width for better readability
-        let bubble_max_width = (WIDE_POPUP_WIDTH * 0.75) as u16;
+        let bubble_max_width = (360.0_f32 * 0.75) as u16;
         let loading_more = is_loading_more(params.loading_state);
 
         let mut msg_column = column![].spacing(sp.space_xs).padding([sp.space_xxs, sp.space_xs]);
@@ -492,18 +492,18 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
                         params.contacts.get_name_or_number(msg.primary_address());
                     column![
                         text::caption(sender_name),
-                        row![bubble_element, widget::horizontal_space(),].width(Length::Fill),
+                        row![bubble_element, widget::space::horizontal(),].width(Length::Fill),
                     ]
                     .spacing(sp.space_xxxs)
                     .width(Length::Fill)
                     .into()
                 } else {
-                    row![bubble_element, widget::horizontal_space(),]
+                    row![bubble_element, widget::space::horizontal(),]
                         .width(Length::Fill)
                         .into()
                 }
             } else {
-                row![widget::horizontal_space(), bubble_element,]
+                row![widget::space::horizontal(), bubble_element,]
                     .width(Length::Fill)
                     .into()
             };
@@ -608,7 +608,7 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
                 .on_press(Message::CloseNewMessage),
             text::heading(heading_text)
                 .class(cosmic::theme::Text::Accent),
-            widget::horizontal_space(),
+            widget::space::horizontal(),
         ]
         .spacing(sp.space_xxs)
         .align_y(Alignment::Center),
@@ -616,7 +616,7 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
 
     // Chip area — vertical list of committed recipients
     let chips_section: Element<Message> = if params.recipients.is_empty() {
-        widget::Space::new(Length::Shrink, Length::Shrink).into()
+        widget::Space::new().into()
     } else {
         let mut chips_col = column![].spacing(sp.space_xxxs);
         for (i, (display_name, phone)) in params.recipients.iter().enumerate() {
@@ -630,7 +630,7 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
             let chip = widget::container(
                 row![
                     text::body(label),
-                    widget::horizontal_space(),
+                    widget::space::horizontal(),
                     widget::button::icon(widget::icon::from_name("edit-clear-symbolic").size(16))
                         .on_press(Message::RemoveRecipient(i)),
                 ]
@@ -658,7 +658,7 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
 
     let input_valid = is_address_valid(params.recipient_input);
     let action_icon: Element<Message> = if params.recipient_input.is_empty() {
-        widget::Space::new(Length::Fixed(20.0), Length::Fixed(20.0)).into()
+        widget::Space::new().width(Length::Fixed(20.0)).height(Length::Fixed(20.0)).into()
     } else if input_valid {
         widget::button::icon(widget::icon::from_name("list-add-symbolic").size(20))
             .on_press(Message::AddManualRecipient)
@@ -699,7 +699,7 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
             .width(Length::Fill)
             .into()
     } else {
-        widget::Space::new(Length::Shrink, Length::Shrink).into()
+        widget::Space::new().into()
     };
 
     // Message input
@@ -724,7 +724,7 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
     };
 
     let send_row = applet::padded_control(
-        row![widget::horizontal_space(), send_btn,]
+        row![widget::space::horizontal(), send_btn,]
             .spacing(sp.space_xxs)
             .align_y(Alignment::Center),
     );
@@ -736,7 +736,7 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
         suggestions_section,
         applet::padded_control(message_input),
         send_row,
-        widget::vertical_space(),
+        widget::space::vertical(),
     ]
     .spacing(sp.space_xxxs)
     .width(Length::Fill)

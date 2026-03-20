@@ -50,7 +50,7 @@ pub fn view_send_to(params: SendToParams<'_>) -> Element<'_, Message> {
     let share_file_row = row![
         icon::from_name("document-send-symbolic").size(24),
         text::body(fl!("share-file")),
-        widget::horizontal_space(),
+        widget::space::horizontal(),
     ]
     .spacing(sp.space_xs)
     .align_y(Alignment::Center);
@@ -62,7 +62,7 @@ pub fn view_send_to(params: SendToParams<'_>) -> Element<'_, Message> {
     let send_clipboard_row = row![
         icon::from_name("edit-copy-symbolic").size(24),
         text::body(fl!("share-clipboard")),
-        widget::horizontal_space(),
+        widget::space::horizontal(),
     ]
     .spacing(sp.space_xs)
     .align_y(Alignment::Center);
@@ -74,7 +74,7 @@ pub fn view_send_to(params: SendToParams<'_>) -> Element<'_, Message> {
     let send_ping_row = row![
         icon::from_name("network-transmit-symbolic").size(24),
         text::body(fl!("send-ping")),
-        widget::horizontal_space(),
+        widget::space::horizontal(),
     ]
     .spacing(sp.space_xs)
     .align_y(Alignment::Center);
@@ -106,7 +106,7 @@ pub fn view_send_to(params: SendToParams<'_>) -> Element<'_, Message> {
             .class(cosmic::theme::Container::Card)
             .into()
     } else {
-        widget::Space::new(Length::Shrink, Length::Shrink).into()
+        widget::Space::new().into()
     };
 
     let divider = || applet::padded_control(widget::divider::horizontal::default());

@@ -29,7 +29,7 @@ pub fn view_media_controls(params: MediaControlsParams<'_>) -> Element<'_, Messa
                 .on_press(Message::CloseMediaView),
             text::heading(format!("{} - {}", fl!("media"), device_name))
                 .class(cosmic::theme::Text::Accent),
-            widget::horizontal_space(),
+            widget::space::horizontal(),
         ]
         .spacing(sp.space_xxs)
         .align_y(Alignment::Center),
@@ -152,7 +152,7 @@ pub fn view_media_player(info: &MediaInfo) -> Element<'_, Message> {
     let length_str = format_duration(info.length);
     let position_display = row![
         text::caption(position_str),
-        widget::horizontal_space(),
+        widget::space::horizontal(),
         text::caption(length_str),
     ]
     .padding([0, sp.space_xs as u16]);
