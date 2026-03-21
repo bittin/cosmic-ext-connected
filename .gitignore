@@ -26,6 +26,7 @@ Thumbs.db
 /repo/
 /.flatpak-builder/
 /cargo-sources.json
+*.flatpak
 
 # Debug
 *.log
