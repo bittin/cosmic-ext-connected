@@ -2491,20 +2491,33 @@ impl Application for ConnectApplet {
                 loading_state: &self.sms_loading_state,
                 sync_active: self.conversation_sync_active,
             }),
-            ViewMode::MessageThread => view_message_thread(MessageThreadParams {
-                device_id: self.sms_device_id.as_deref().unwrap_or(""),
-                device_name: self.sms_device_name.as_deref().unwrap_or(""),
-                thread_addresses: self.current_thread_addresses.as_deref(),
-                messages: &self.messages,
-                contacts: &self.contacts,
-                loading_state: &self.sms_loading_state,
-                sms_compose_text: &self.sms_compose_text,
-                sms_sending: self.sms_sending,
-                sync_active: self.message_sync_active,
-                pressed_bubble_uid: self.pressed_bubble_uid,
-                show_copy_hint: self.show_copy_hint,
-                status_message: self.status_message.as_deref(),
-            }),
+            ViewMode::MessageThread => {
+                let thread = view_message_thread(MessageThreadParams {
+                    device_id: self.sms_device_id.as_deref().unwrap_or(""),
+                    device_name: self.sms_device_name.as_deref().unwrap_or(""),
+                    thread_addresses: self.current_thread_addresses.as_deref(),
+                    messages: &self.messages,
+                    contacts: &self.contacts,
+                    loading_state: &self.sms_loading_state,
+                    sms_compose_text: &self.sms_compose_text,
+                    sms_sending: self.sms_sending,
+                    sync_active: self.message_sync_active,
+                    pressed_bubble_uid: self.pressed_bubble_uid,
+                    show_copy_hint: self.show_copy_hint,
+                    status_message: self.status_message.as_deref(),
+                });
+                // popup_container uses Shrink height internally, which sets a
+                // compression flag on iced's layout limits. Under compression,
+                // the flex layout processes all children in document order and a
+                // scrollable's intrinsic content size consumes all available
+                // height, leaving 0 for the compose row below it. A Fixed height
+                // wrapper is the only way to clear that flag (Fill doesn't);
+                // the value is capped to popup_container's 1000px max.
+                widget::container(thread)
+                    .height(cosmic::iced::Length::Fixed(10_000.0))
+                    .width(cosmic::iced::Length::Fill)
+                    .into()
+            }
             ViewMode::NewMessage => view_new_message(NewMessageParams {
                 recipients: &self.new_message_recipients,
                 recipient_input: &self.new_message_recipient_input,

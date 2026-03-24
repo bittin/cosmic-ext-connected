@@ -553,7 +553,8 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
         compose_row,
     ]
     .spacing(sp.space_xxxs)
-    .width(Length::Fill);
+    .width(Length::Fill)
+    .height(Length::Fill);
 
     if params.sms_sending {
         thread_column = thread_column.push(
