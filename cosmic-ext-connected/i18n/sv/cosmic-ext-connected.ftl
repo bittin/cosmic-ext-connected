@@ -180,3 +180,8 @@ sms-failed = Misslyckades med att skicka meddelande
 pairing-accepted = Parning accepterad
 pairing-rejected = Parning avvisad
 unpaired = Avparad från enhet
+
+# Bilagor
+attachment = Bilaga
+loading-attachment = Laddar bilaga...
+attachment-failed = Misslyckades att ladda bilaga
