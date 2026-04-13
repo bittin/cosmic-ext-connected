@@ -2,9 +2,7 @@
 
 use crate::app::Message;
 use crate::constants::dbus::RETRY_DELAY_SECS;
-use crate::constants::sms::{
-    MESSAGE_SUBSCRIPTION_TIMEOUT_SECS, PHONE_ACTIVITY_TIMEOUT_MS, PHONE_RESPONSE_TIMEOUT_MS,
-};
+use crate::constants::sms::{MESSAGE_SUBSCRIPTION_TIMEOUT_SECS, PHONE_RESPONSE_TIMEOUT_MS};
 use crate::notifications::{
     should_show_call_notification, should_show_file_notification, should_show_sms_notification,
 };
@@ -574,20 +572,17 @@ enum ConversationMessageState {
         stream: zbus::MessageStream,
         thread_id: i64,
         device_id: String,
-        /// When we started listening (for hard timeout safety net)
-        start_time: tokio::time::Instant,
-        /// Set when conversationLoaded arrives; switches to deadline-based timeout
-        /// to wait for phone response data (local store may be sparse after reboot)
+        /// Set when `conversationLoaded` arrives; enables phone_deadline.
         local_store_done: bool,
-        /// Total message count from conversationLoaded signal (for final emission)
+        /// Total message count from `conversationLoaded` signal.
         total_message_count: Option<u64>,
-        /// Deadline for phone to START responding. Set when conversationLoaded arrives.
-        /// Only checked when `activity_deadline` is `None` (no phone messages yet).
+        /// Deadline for phone to START responding. Set when `conversationLoaded` arrives.
+        /// When it fires, `ConversationLoadComplete` is emitted once and the subscription
+        /// continues listening with a heartbeat sleep.
         phone_deadline: Option<tokio::time::Instant>,
-        /// Deadline for phone message activity. Set/reset on each matching phone message.
-        /// Once set, `phone_deadline` is no longer checked. Shorter than phone_deadline
-        /// since messages are already flowing.
-        activity_deadline: Option<tokio::time::Instant>,
+        /// Whether `ConversationLoadComplete` has been emitted. Once true, the subscription
+        /// continues silently with a heartbeat sleep until iced drops it.
+        load_complete_emitted: bool,
     },
     /// Terminal state - subscription is complete
     Done,
@@ -599,10 +594,17 @@ enum ConversationMessageState {
 /// 1. Setting up D-Bus match rules for signals
 /// 2. Firing the request_conversation D-Bus call (AFTER rules are set up)
 /// 3. Listening for `conversationUpdated` signals (individual messages)
-/// 4. Emitting `ConversationLoadComplete` when `conversationLoaded` signal arrives
+/// 4. Emitting `ConversationLoadComplete` when phone deadline fires (initial load done)
+/// 5. Continuing to listen for new messages until the conversation is closed
+///
+/// The subscription runs as long as the conversation is open. It is cancelled by
+/// iced dropping it when `conversation_load_active` becomes false (CloseConversation).
 ///
 /// The request is fired from within the subscription to avoid race conditions
 /// where signals arrive before we're ready to receive them.
+///
+/// Heartbeat interval after initial load completes (seconds).
+const MESSAGE_HEARTBEAT_SLEEP_SECS: u64 = 30;
 pub fn conversation_message_subscription(
     thread_id: i64,
     device_id: String,
@@ -822,11 +824,10 @@ pub fn conversation_message_subscription(
                             stream,
                             thread_id,
                             device_id,
-                            start_time: tokio::time::Instant::now(),
                             local_store_done: false,
                             total_message_count: None,
                             phone_deadline: None,
-                            activity_deadline: None,
+                            load_complete_emitted: false,
                         },
                     ))
                 }
@@ -835,109 +836,117 @@ pub fn conversation_message_subscription(
                     mut stream,
                     thread_id,
                     device_id,
-                    start_time,
                     mut local_store_done,
                     mut total_message_count,
                     mut phone_deadline,
-                    mut activity_deadline,
+                    mut load_complete_emitted,
                 } => {
-                    // Two-phase timeout strategy:
+                    // Two-phase loading, then long-lived listening:
                     //
-                    // Phase 1 (before conversationLoaded): Wait for the hard timeout.
-                    //   The local store read emits conversationUpdated per message, then
-                    //   conversationLoaded when done. No activity timeout needed here.
+                    // Phase 1 (before conversationLoaded): Local store signals arrive.
+                    //   Hard timeout (MESSAGE_SUBSCRIPTION_TIMEOUT_SECS) as safety net
+                    //   in case conversationLoaded never fires.
                     //
-                    // Phase 2a (after conversationLoaded, waiting for phone):
-                    //   phone_deadline (8s) waits for the phone to START responding.
-                    //   Only checked when activity_deadline is None (no phone messages yet).
+                    // Phase 2 (after conversationLoaded): phone_deadline (8s) waits for
+                    //   the phone to respond. When it fires, ConversationLoadComplete is
+                    //   emitted to signal initial load is done.
                     //
-                    // Phase 2b (phone messages flowing):
-                    //   activity_deadline (3s) takes over after the first phone message.
-                    //   Reset on each matching signal. Once set, phone_deadline is ignored.
-                    //
-                    // Hard timeout: absolute safety net for all phases.
-                    let hard_timeout = std::time::Duration::from_secs(MESSAGE_SUBSCRIPTION_TIMEOUT_SECS);
+                    // Phase 3 (after load complete): Subscription continues silently with
+                    //   a heartbeat sleep, catching new messages (including sent echoes)
+                    //   until iced drops it on CloseConversation.
+                    let local_store_timeout = std::time::Duration::from_secs(
+                        MESSAGE_SUBSCRIPTION_TIMEOUT_SECS,
+                    );
                     let phone_wait = std::time::Duration::from_millis(PHONE_RESPONSE_TIMEOUT_MS);
-                    let activity_timeout = std::time::Duration::from_millis(PHONE_ACTIVITY_TIMEOUT_MS);
-                    let hard_deadline = start_time + hard_timeout;
+                    // Hard deadline only for local store phase (before conversationLoaded)
+                    let local_store_deadline = if !local_store_done && !load_complete_emitted {
+                        Some(tokio::time::Instant::now() + local_store_timeout)
+                    } else {
+                        None
+                    };
 
                     loop {
                         let now = tokio::time::Instant::now();
 
-                        // Hard timeout check (absolute)
-                        if now >= hard_deadline {
-                            tracing::info!(
-                                "Subscription: hard timeout reached for thread {} after {:?}",
-                                thread_id,
-                                start_time.elapsed()
-                            );
-                            return Some((
-                                Message::ConversationLoadComplete {
-                                    thread_id,
-                                    total_count: total_message_count.unwrap_or(0),
-                                },
-                                ConversationMessageState::Done,
-                            ));
-                        }
-
-                        // Check activity deadline (phone messages flowing)
-                        if let Some(ad) = activity_deadline {
-                            if now >= ad {
+                        // Check local store hard timeout (Phase 1 safety net)
+                        if let Some(lsd) = local_store_deadline {
+                            if !local_store_done && !load_complete_emitted && now >= lsd {
                                 tracing::info!(
-                                    "Subscription: activity timeout for thread {} \
-                                     (no matching signals for {:?} after last phone message)",
-                                    thread_id,
-                                    activity_timeout
+                                    "Subscription: local store timeout for thread {} \
+                                     (conversationLoaded never received), signaling load complete",
+                                    thread_id
                                 );
+                                load_complete_emitted = true;
                                 return Some((
                                     Message::ConversationLoadComplete {
                                         thread_id,
                                         total_count: total_message_count.unwrap_or(0),
                                     },
-                                    ConversationMessageState::Done,
+                                    ConversationMessageState::Listening {
+                                        conn,
+                                        stream,
+                                        thread_id,
+                                        device_id,
+                                        local_store_done,
+                                        total_message_count,
+                                        phone_deadline,
+                                        load_complete_emitted,
+                                    },
                                 ));
                             }
                         }
 
-                        // Check phone deadline (waiting for phone to start)
-                        // Only when activity_deadline is None (no phone messages yet)
-                        if activity_deadline.is_none() {
+                        // Check phone deadline (Phase 2 → Phase 3 transition)
+                        if !load_complete_emitted {
                             if let Some(pd) = phone_deadline {
                                 if now >= pd {
                                     tracing::info!(
-                                        "Subscription: phone never responded for thread {} \
-                                         (no messages within {:?} after conversationLoaded)",
-                                        thread_id,
-                                        phone_wait
+                                        "Subscription: phone deadline reached for thread {}, \
+                                         signaling load complete (subscription continues)",
+                                        thread_id
                                     );
+                                    load_complete_emitted = true;
                                     return Some((
                                         Message::ConversationLoadComplete {
                                             thread_id,
                                             total_count: total_message_count.unwrap_or(0),
                                         },
-                                        ConversationMessageState::Done,
+                                        ConversationMessageState::Listening {
+                                            conn,
+                                            stream,
+                                            thread_id,
+                                            device_id,
+                                            local_store_done,
+                                            total_message_count,
+                                            phone_deadline,
+                                            load_complete_emitted,
+                                        },
                                     ));
                                 }
                             }
                         }
 
-                        // Compute effective deadline based on phase
-                        let effective_deadline = if let Some(ad) = activity_deadline {
-                            ad.min(hard_deadline)
+                        // Compute sleep duration based on phase
+                        let wait_duration = if load_complete_emitted {
+                            // Phase 3: long heartbeat, just keeping unfold alive
+                            tokio::time::Duration::from_secs(MESSAGE_HEARTBEAT_SLEEP_SECS)
                         } else if let Some(pd) = phone_deadline {
-                            pd.min(hard_deadline)
+                            // Phase 2: sleep until phone deadline
+                            pd.saturating_duration_since(now)
+                        } else if let Some(lsd) = local_store_deadline {
+                            // Phase 1: sleep until local store hard timeout
+                            lsd.saturating_duration_since(now)
                         } else {
-                            hard_deadline
+                            // Fallback heartbeat
+                            tokio::time::Duration::from_secs(MESSAGE_HEARTBEAT_SLEEP_SECS)
                         };
-
-                        let wait_duration = effective_deadline.saturating_duration_since(now);
 
                         tokio::select! {
                             biased;
 
                             // Priority: D-Bus signals
-                            msg_result = stream.next() => {
-                                match msg_result {
+                            msg_option = stream.next() => {
+                                match msg_option {
                                     Some(Ok(msg)) => {
                                         if msg.header().message_type() == zbus::message::Type::Signal {
                                             if let (Some(interface), Some(member)) =
@@ -955,19 +964,12 @@ pub fn conversation_message_subscription(
                                                         body.deserialize::<zbus::zvariant::OwnedValue>()
                                                     {
                                                         if let Some(sms_msg) = parse_sms_message(&value) {
-                                                            // Only process messages for our thread
                                                             if sms_msg.thread_id == thread_id {
                                                                 tracing::debug!(
                                                                     "Subscription: received message uid={} for thread {}",
                                                                     sms_msg.uid,
                                                                     thread_id
                                                                 );
-                                                                // Reset activity deadline on matching signal
-                                                                if local_store_done {
-                                                                    activity_deadline = Some(
-                                                                        tokio::time::Instant::now() + activity_timeout,
-                                                                    );
-                                                                }
                                                                 return Some((
                                                                     Message::ConversationMessageReceived {
                                                                         thread_id,
@@ -978,11 +980,10 @@ pub fn conversation_message_subscription(
                                                                         stream,
                                                                         thread_id,
                                                                         device_id,
-                                                                        start_time,
                                                                         local_store_done,
                                                                         total_message_count,
                                                                         phone_deadline,
-                                                                        activity_deadline,
+                                                                        load_complete_emitted,
                                                                     },
                                                                 ));
                                                             }
@@ -995,26 +996,22 @@ pub fn conversation_message_subscription(
                                                     && member_str == "conversationLoaded"
                                                 {
                                                     let body = msg.body();
-                                                    // Signal args: (conversationId: i64, messageCount: u64)
                                                     if let Ok((conv_id, message_count)) =
                                                         body.deserialize::<(i64, u64)>()
                                                     {
                                                         if conv_id == thread_id {
                                                             tracing::info!(
-                                                                "Subscription: conversationLoaded for thread {}, {} messages in store. \
-                                                                 Waiting up to {:?} for phone to start responding...",
+                                                                "Subscription: conversationLoaded for thread {}, \
+                                                                 {} messages in store. Waiting up to {:?} for phone...",
                                                                 thread_id,
                                                                 message_count,
                                                                 phone_wait
                                                             );
                                                             local_store_done = true;
                                                             total_message_count = Some(message_count);
-                                                            // Start phone wait deadline (phase 2a)
                                                             phone_deadline = Some(
                                                                 tokio::time::Instant::now() + phone_wait,
                                                             );
-                                                            // Yield scroll event, then continue
-                                                            // in phase 2 (deadline-based timeout for phone data)
                                                             return Some((
                                                                 Message::ConversationStoreLoaded {
                                                                     thread_id,
@@ -1025,11 +1022,10 @@ pub fn conversation_message_subscription(
                                                                     stream,
                                                                     thread_id,
                                                                     device_id,
-                                                                    start_time,
                                                                     local_store_done,
                                                                     total_message_count,
                                                                     phone_deadline,
-                                                                    activity_deadline,
+                                                                    load_complete_emitted,
                                                                 },
                                                             ));
                                                         }
@@ -1037,59 +1033,34 @@ pub fn conversation_message_subscription(
                                                 }
                                             }
                                         }
-                                        // Non-matching signals: continue loop WITHOUT
-                                        // resetting the phone deadline. This is critical —
-                                        // unrelated D-Bus traffic must not extend the timeout.
+                                        // Non-matching signals: continue loop
                                     }
                                     Some(Err(e)) => {
                                         tracing::warn!("D-Bus conversation stream error: {}", e);
                                     }
                                     None => {
+                                        // Stream ended (D-Bus connection dropped)
                                         tracing::warn!(
-                                            "D-Bus conversation stream ended for thread {}",
+                                            "D-Bus message stream ended for thread {}",
                                             thread_id
                                         );
-                                        return Some((
-                                            Message::ConversationLoadComplete {
-                                                thread_id,
-                                                total_count: total_message_count.unwrap_or(0),
-                                            },
-                                            ConversationMessageState::Done,
-                                        ));
+                                        if !load_complete_emitted {
+                                            return Some((
+                                                Message::ConversationLoadComplete {
+                                                    thread_id,
+                                                    total_count: total_message_count.unwrap_or(0),
+                                                },
+                                                ConversationMessageState::Done,
+                                            ));
+                                        }
+                                        return None;
                                     }
                                 }
                             }
 
-                            // Timeout — activity, phone, or hard deadline
+                            // Sleep until next deadline or heartbeat
                             _ = tokio::time::sleep(wait_duration) => {
-                                if activity_deadline.is_some() {
-                                    tracing::info!(
-                                        "Subscription: activity timeout for thread {} \
-                                         (no matching signals for {:?} after last phone message)",
-                                        thread_id,
-                                        activity_timeout
-                                    );
-                                } else if local_store_done {
-                                    tracing::info!(
-                                        "Subscription: phone never responded for thread {} \
-                                         (no messages within {:?} after conversationLoaded)",
-                                        thread_id,
-                                        phone_wait
-                                    );
-                                } else {
-                                    tracing::info!(
-                                        "Subscription: hard timeout for thread {} \
-                                         (no conversationLoaded received)",
-                                        thread_id
-                                    );
-                                }
-                                return Some((
-                                    Message::ConversationLoadComplete {
-                                        thread_id,
-                                        total_count: total_message_count.unwrap_or(0),
-                                    },
-                                    ConversationMessageState::Done,
-                                ));
+                                // Loop back — deadline checks at top will handle expiry
                             }
                         }
                     }

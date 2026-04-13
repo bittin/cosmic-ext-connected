@@ -179,23 +179,27 @@ We fire both: SMS plugin first (cache priming), then Conversations interface (pe
 ### `conversationLoaded` signal count is unreliable
 `conversationLoaded(threadId, messageCount)` fires when the Conversations interface finishes reading its local persistent store. The `messageCount` reflects **how many messages were in the local store**, not the phone's total. After a reboot, the local store may have 0-1 messages even for conversations with hundreds. Never use this count for pagination decisions — use `messages.len() >= messages_per_page` as a heuristic instead.
 
-### Message loading uses a deadline-based subscription with three phases
-`conversation_message_subscription` in `subscriptions.rs` uses a state machine (`Init` → `Listening` → `Done`) with three phases:
-- **Phase 1:** Wait for local store signals (`conversationUpdated` per message, then `conversationLoaded`). No activity timeout — just the hard timeout safety net (20s).
-- **Phase 2a:** After `conversationLoaded`, `phone_deadline` (8s, `PHONE_RESPONSE_TIMEOUT_MS`) waits for the phone to START responding. Only checked when `activity_deadline` is `None` (no phone messages yet).
-- **Phase 2b:** After the first phone message, `activity_deadline` (3s, `PHONE_ACTIVITY_TIMEOUT_MS`) takes over. Reset on each matching signal. Once set, `phone_deadline` is ignored. This prevents the previous issue where each message extended the wait by 8s.
+### Message subscription runs until the conversation closes
+`conversation_message_subscription` in `subscriptions.rs` uses a state machine (`Init` → `Listening`) that runs as long as the conversation is open:
+- **Phase 1:** Local store signals (`conversationUpdated` per message, then `conversationLoaded`). Hard timeout safety net (20s) in case `conversationLoaded` never arrives.
+- **Phase 2:** After `conversationLoaded`, `phone_deadline` (8s, `PHONE_RESPONSE_TIMEOUT_MS`) waits for the phone to respond. When it fires, `ConversationLoadComplete` is emitted but the subscription continues listening.
+- **Phase 3:** After load complete, the subscription uses a 30s heartbeat sleep while listening for new messages (including sent message echoes for optimistic reconciliation).
+- The subscription is cancelled when iced drops it (`conversation_load_active` set to false in `CloseConversation`).
+- There is no activity timeout. This matches the conversation list subscription pattern and all three reference implementations.
 
-Both deadlines reset **only on matching signals** (messages for our thread), not on unrelated D-Bus traffic. Both must be stored in the `Listening` state struct (not local variables) because each `unfold` yield exits and re-enters the function.
+`initial_load_complete` tracks whether the initial load phase is done (Phase 2 → Phase 3 transition). This flag gates scroll prefetch — prefetch must wait until initial load finishes to avoid collecting duplicate D-Bus signals.
 
-### Scroll prefetch must wait for subscription to complete
-`MessageThreadScrolled` triggers `fetch_older_messages_async` when the user scrolls near the top. This fires a separate `requestConversation` which picks up D-Bus signals on the same session bus. If the initial message subscription is still running, the prefetch collects the **same signals** and `OlderMessagesLoaded` prepends duplicates. Guard: `!self.conversation_load_active` in the prefetch condition. Safety net: `OlderMessagesLoaded` filters `older_msgs` against `known_message_ids` before prepending.
+### Scroll prefetch must wait for initial load to complete
+`MessageThreadScrolled` triggers `fetch_older_messages_async` when the user scrolls near the top. This fires a separate `requestConversation` which picks up D-Bus signals on the same session bus. If the initial message load is still running, the prefetch collects the **same signals** and `OlderMessagesLoaded` prepends duplicates. Guard: `self.initial_load_complete` in the prefetch condition. Safety net: `OlderMessagesLoaded` filters `older_msgs` against `known_message_ids` before prepending.
 
-### Conversation list loading uses deadline-based subscription
-`conversation_list_subscription` in `conversation_subscription.rs` uses a state machine (`Init` → `EmittingCached` → `Listening` → `Done`) with deadline-based timeouts:
-- **`phone_deadline`** — absolute `Instant` for how long to wait for the phone to start responding. 8s on cold start (no cache), 3s on warm start (has cache). Only checked when no live signals have arrived yet.
-- **`activity_deadline`** — `Option<Instant>`, initially `None`. Set/reset to `now + 3s` on each live D-Bus signal (`conversationCreated`, `conversationUpdated`, `conversationLoaded`). Once set, `phone_deadline` is no longer checked.
+### Conversation list subscription runs until the view closes
+`conversation_list_subscription` in `conversation_subscription.rs` uses a state machine (`Init` → `EmittingCached` → `Listening`) that runs as long as the SMS view is open:
+- **`phone_deadline`** — absolute `Instant` for how long to show the sync spinner. 8s on cold start (no cache), 3s on warm start (has cache). When it fires, `ConversationSyncComplete` is emitted to dismiss the UI spinner, but the subscription continues listening silently.
+- After the phone deadline fires, the subscription uses a 30s heartbeat sleep to keep the unfold alive while waiting for signals.
+- The subscription is cancelled when iced drops it (`conversation_list_subscription_active` set to false in `CloseSmsView` or `SmsError`).
+- There is no activity timeout or hard timeout. This matches the pattern used by KDE Connect SMS desktop, GSConnect, and hepp3n — none of which have a "loading done" concept.
 
-Cached conversations from `activeConversations()` are emitted immediately via `EmittingCached` for instant UI display, but they do **not** arm the activity timeout. This prevents the subscription from dying before the phone responds (network RTT is 1-5s).
+Cached conversations from `activeConversations()` are emitted immediately via `EmittingCached` for instant UI display.
 
 ### COSMIC's notification daemon ignores `expire_timeout`
 COSMIC's notification daemon does not respect the `expire_timeout` hint from the freedesktop notification spec. All notifications display for the daemon's fixed duration regardless of the value passed. To implement user-configurable notification duration, notifications must be created with `Timeout::Never` (expire_timeout=0) to prevent the daemon from auto-closing them, then explicitly closed via `NotificationHandle::close()` after the configured timeout. This is handled by `show_and_auto_close()` in `app.rs`.
@@ -209,6 +213,13 @@ Replies use `replyToConversation(threadId, message, attachments)`, which looks u
 **Caveat:** `replyToConversation` silently no-ops if the cache is empty (no D-Bus error). The KDE Connect desktop SMS app uses it the same way with no fallback. See `reference/reply-to-conversation-analysis.md` for detection/fallback options if this proves unreliable.
 
 New messages (no existing thread) use `sendWithoutConversation(addresses, message, attachments)` with explicit addresses. Both methods are on the same Conversations D-Bus interface.
+
+### Optimistic sent message display
+When a reply is sent successfully (`SmsSendResult(Ok(_))`), an optimistic `SmsMessage` with `OPTIMISTIC_MESSAGE_UID` (`i32::MIN`) is inserted into `self.messages` immediately. This provides instant visual feedback — the message appears as a right-aligned bubble with a spinning "Sending..." indicator instead of a timestamp.
+
+When the phone echoes the real message back via `ConversationMessageReceived`, the optimistic entry is reconciled: body + type + 5-minute time window matching upgrades the sentinel UID and timestamp in-place. The message subscription runs for the lifetime of the conversation view, so the echo is caught naturally without any subscription restart.
+
+Guard: `sms_sending_body.is_some()` prevents duplicate insertion if the echo arrives before `SmsSendResult`. The existing `confirmed_send` logic handles that edge case.
 
 ### KDE Connect daemon cache path is `kdeconnect.daemon`, not `kdeconnect`
 KDE Connect's daemon sets its Qt application name to `"kdeconnect.daemon"` in `kdeconnectd.cpp`. Qt's `QStandardPaths::CacheLocation` resolves to `~/.cache/<applicationName>/`, so MMS attachments are cached at `~/.cache/kdeconnect.daemon/<device-name>/<uniqueIdentifier>` (e.g. `PART_1762553269778`). Files have no extension — the MIME type comes from the message's attachment metadata. The Flatpak manifest must include `--filesystem=xdg-cache/kdeconnect.daemon:ro` for the applet to read cached attachments.

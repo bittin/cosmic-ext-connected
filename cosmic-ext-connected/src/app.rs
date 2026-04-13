@@ -39,7 +39,10 @@ use cosmic::{Application, Element};
 use kdeconnect_dbus::{
     contacts::ContactLookup,
     normalize_phone_number, phone_suffix,
-    plugins::{is_address_valid, ConversationSummary, MessageType, NotificationInfo, SmsMessage},
+    plugins::{
+        is_address_valid, ConversationSummary, MessageType, NotificationInfo, SmsMessage,
+        OPTIMISTIC_MESSAGE_UID,
+    },
 };
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -436,6 +439,10 @@ pub struct ConnectApplet {
     message_sync_active: bool,
     /// Whether subscription-based conversation loading is active
     conversation_load_active: bool,
+    /// Whether the initial message load is complete (local store + phone response).
+    /// Used to gate scroll prefetch — prefetch must wait until the initial
+    /// subscription load finishes to avoid collecting duplicate D-Bus signals.
+    initial_load_complete: bool,
     /// Thread ID currently being loaded via subscription (for filtering signals)
     loading_thread_id: Option<i64>,
     /// Set of message UIDs already displayed (for deduplication during incremental loading)
@@ -658,6 +665,7 @@ impl Application for ConnectApplet {
             conversation_list_subscription_active: false,
             message_sync_active: false,
             conversation_load_active: false,
+            initial_load_complete: false,
             loading_thread_id: None,
             known_message_ids: HashSet::new(),
             current_thread_id: None,
@@ -1265,6 +1273,7 @@ impl Application for ConnectApplet {
                     // Set up subscription-based loading state
                     // The subscription will fire the D-Bus request after setting up match rules
                     self.conversation_load_active = true;
+                    self.initial_load_complete = false;
                     self.loading_thread_id = Some(thread_id);
 
                     // Always load through daemon to ensure its cache is primed
@@ -1292,6 +1301,7 @@ impl Application for ConnectApplet {
 
                 // Clear subscription-based loading state
                 self.conversation_load_active = false;
+                self.initial_load_complete = false;
                 self.loading_thread_id = None;
                 self.known_message_ids.clear();
 
@@ -1424,35 +1434,25 @@ impl Application for ConnectApplet {
                 }
 
                 tracing::info!(
-                    "Conversation sync complete for device {}, loaded {} conversations",
+                    "Conversation sync indicator dismissed for device {}, {} conversations loaded",
                     device_id,
                     self.conversations.len()
                 );
 
-                // Clear sync indicators
+                // Clear sync indicator only. The subscription keeps running
+                // to catch new conversations while the SMS view is open.
                 self.conversation_sync_active = false;
-                self.conversation_list_subscription_active = false;
 
-                // If subscription yielded 0 conversations, fall back to polling
-                if self.conversations.is_empty() {
-                    if let Some(conn) = &self.dbus_connection {
-                        tracing::info!(
-                            "Subscription returned no conversations for device {}, falling back to polling",
-                            device_id
-                        );
-                        self.conversation_sync_active = true;
-                        return cosmic::app::Task::perform(
-                            fetch_conversations_async(conn.clone(), device_id),
-                            cosmic::Action::App,
-                        );
-                    }
-                }
-
-                // Reset loading state if still loading
+                // Only dismiss loading spinner if we have data to show.
+                // If conversations is empty, keep the spinner — the subscription
+                // continues listening and may receive conversations later.
+                // This prevents a false "no conversations" message on cold start
+                // when the phone is slow to respond.
                 if matches!(
                     self.sms_loading_state,
                     SmsLoadingState::LoadingConversations(_)
-                ) {
+                ) && !self.conversations.is_empty()
+                {
                     self.sms_loading_state = SmsLoadingState::Idle;
                 }
             }
@@ -1572,7 +1572,7 @@ impl Application for ConnectApplet {
                 if scroll_offset < PREFETCH_THRESHOLD_PX
                     && self.messages_has_more
                     && !self.is_loading_more_messages()
-                    && !self.conversation_load_active
+                    && self.initial_load_complete
                     && !self.messages.is_empty()
                 {
                     tracing::debug!(
@@ -1678,6 +1678,31 @@ impl Application for ConnectApplet {
                         self.current_thread_id
                     );
                     return cosmic::app::Task::none();
+                }
+
+                // Reconcile optimistic message: if this incoming sent message
+                // matches our optimistic insert's body within a 5-minute window,
+                // upgrade the optimistic entry in-place instead of inserting a duplicate.
+                if message.uid != OPTIMISTIC_MESSAGE_UID
+                    && message.message_type == MessageType::Sent
+                {
+                    if let Some(pos) = self.messages.iter().position(|m| {
+                        m.uid == OPTIMISTIC_MESSAGE_UID
+                            && m.message_type == MessageType::Sent
+                            && m.body == message.body
+                            && (message.date - m.date).unsigned_abs() < 300_000
+                    }) {
+                        tracing::info!(
+                            "Reconciling optimistic message with real uid={}",
+                            message.uid
+                        );
+                        self.messages[pos].uid = message.uid;
+                        self.messages[pos].date = message.date;
+                        self.known_message_ids.remove(&OPTIMISTIC_MESSAGE_UID);
+                        self.known_message_ids.insert(message.uid);
+                        self.sms_sending_body = None;
+                        return cosmic::app::Task::none();
+                    }
                 }
 
                 // Deduplication: skip if already have this message
@@ -1813,9 +1838,10 @@ impl Application for ConnectApplet {
                     }
                 }
 
-                // Clear sync indicator and loading state
+                // Clear sync indicator and loading state. The subscription keeps
+                // running to catch new messages (including sent message echoes).
                 self.message_sync_active = false;
-                self.conversation_load_active = false;
+                self.initial_load_complete = true;
                 self.sms_loading_state = SmsLoadingState::Idle;
 
                 // Scroll to bottom if we loaded messages
@@ -1886,14 +1912,17 @@ impl Application for ConnectApplet {
                         tracing::info!("SMS sent successfully");
                         self.sms_compose_text.clear();
 
-                        // Update conversation list preview so it reflects the new message
-                        // when user navigates back
                         if let Some(thread_id) = self.current_thread_id {
                             let now_ms = std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
                                 .map(|d| d.as_millis() as i64)
                                 .unwrap_or(0);
 
+                            // Clone before move into conversation preview
+                            let optimistic_body = sent_body.clone();
+
+                            // Update conversation list preview so it reflects the new message
+                            // when user navigates back
                             if let Some(conv) = self
                                 .conversations
                                 .iter_mut()
@@ -1902,9 +1931,41 @@ impl Application for ConnectApplet {
                                 conv.last_message = sent_body;
                                 conv.timestamp = now_ms;
                             }
-                            // Re-sort conversations by timestamp (newest first)
                             self.conversations
                                 .sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+
+                            // Insert optimistic message if echo hasn't already arrived.
+                            // sms_sending_body is cleared by confirmed_send in
+                            // ConversationMessageReceived if the echo arrived before
+                            // SmsSendResult — skip to avoid duplicate.
+                            if self.sms_sending_body.is_some() {
+                                let optimistic = SmsMessage {
+                                    body: optimistic_body,
+                                    addresses: self
+                                        .current_thread_addresses
+                                        .clone()
+                                        .unwrap_or_default(),
+                                    date: now_ms,
+                                    message_type: MessageType::Sent,
+                                    read: true,
+                                    thread_id,
+                                    uid: OPTIMISTIC_MESSAGE_UID,
+                                    sub_id: self.current_thread_sub_id.unwrap_or(-1),
+                                    attachments: vec![],
+                                };
+                                self.messages.push(optimistic);
+                                self.known_message_ids.insert(OPTIMISTIC_MESSAGE_UID);
+                                self.sms_sending_body = None;
+
+                                // No subscription restart needed — the message subscription
+                                // runs as long as the thread is open and will catch the
+                                // phone's echo naturally for optimistic reconciliation.
+
+                                return scrollable::snap_to(
+                                    widget::Id::new("message-thread"),
+                                    scrollable::RelativeOffset::END.into(),
+                                );
+                            }
                         }
 
                         return self.set_transient_status(fl!("sms-sent"));

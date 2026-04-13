@@ -36,30 +36,20 @@ pub mod sms {
     /// Timeout for loading messages in a conversation thread (seconds).
     pub const MESSAGE_FETCH_TIMEOUT_SECS: u64 = 10;
 
-    /// Hard timeout for message loading subscription (seconds).
-    /// Safety net if conversationLoaded signal never arrives.
+    /// Hard timeout for the local store phase of message loading (seconds).
+    /// Safety net if conversationLoaded signal never arrives. After this fires,
+    /// ConversationLoadComplete is emitted but the subscription continues.
     pub const MESSAGE_SUBSCRIPTION_TIMEOUT_SECS: u64 = 20;
 
     /// How long to wait for the phone to start responding with message data after
-    /// conversationLoaded (milliseconds). Only checked when no phone messages have
-    /// arrived yet (activity_deadline is None). Needs to be long enough for network RTT.
+    /// conversationLoaded (milliseconds). When this fires, ConversationLoadComplete
+    /// is emitted (initial load done) but the subscription continues listening.
     pub const PHONE_RESPONSE_TIMEOUT_MS: u64 = 8000;
 
-    /// Activity timeout for phone message data (milliseconds). Once the first phone
-    /// message arrives, this shorter timeout takes over. Reset on each matching signal.
-    /// If no new messages arrive within this window, the subscription completes.
-    pub const PHONE_ACTIVITY_TIMEOUT_MS: u64 = 3000;
-
-    /// How long to wait for the phone to start responding with conversation
-    /// list signals on cold start when no cache exists (milliseconds).
-    /// Aligned with CONVERSATION_TIMEOUT_INITIAL_SECS for consistency.
-    pub const CONVERSATION_LIST_PHONE_WAIT_MS: u64 = 15000;
-
-    /// Activity timeout for conversation list sync (milliseconds).
-    /// After the first live signal, if no new signals arrive within this
-    /// duration, sync is complete. Longer than SIGNAL_ACTIVITY_TIMEOUT_MS
-    /// (500ms) because conversation list signals arrive with larger gaps.
-    pub const CONVERSATION_LIST_ACTIVITY_TIMEOUT_MS: u64 = 3000;
+    /// How long to show the sync indicator on cold start (milliseconds).
+    /// After this deadline, the spinner is dismissed but the subscription
+    /// continues listening for signals silently.
+    pub const CONVERSATION_LIST_PHONE_WAIT_MS: u64 = 8000;
 
     /// Polling delays for fallback conversation loading (milliseconds).
     /// We poll multiple times with increasing delays to give the phone time to sync.

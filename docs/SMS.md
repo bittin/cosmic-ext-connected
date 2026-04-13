@@ -23,7 +23,11 @@ OpenSmsView → Set state, activate subscription
                         ↓
          conversationCreated/Updated signals → ConversationReceived messages
                         ↓
-         Activity timeout (500ms) or hard timeout (20s) → ConversationSyncComplete
+         Phone deadline fires → ConversationSyncComplete (dismiss spinner)
+                        ↓
+         Subscription continues listening with 30s heartbeat
+                        ↓
+CloseSmsView → Flag cleared → iced drops subscription
 ```
 
 **Key implementation details:**
@@ -33,7 +37,8 @@ OpenSmsView → Set state, activate subscription
 3. Match rules are set up BEFORE firing the D-Bus request (prevents race conditions)
 4. Cached conversations emitted one-at-a-time for immediate UI updates
 5. New signals processed incrementally - each conversation appears as it arrives
-6. "Syncing conversations..." indicator shown while subscription is active
+6. "Syncing conversations..." indicator shown until phone deadline fires (8s cold, 3s warm)
+7. Subscription runs until the SMS view is closed — no activity timeout or hard timeout
 
 ```rust
 // State machine for incremental loading
@@ -85,38 +90,51 @@ OpenConversation → Set state, activate subscription
      │  (scroll to bottom, start phone deadline)                  │
      └────────────────────────────────────────────────────────────┘
                             ↓
-     ┌── Phase 2: Phone response window (8s activity timeout) ───┐
+     ┌── Phase 2: Phone response window (8s phone deadline) ─────┐
      │  conversationUpdated signals → ConversationMessageReceived │
-     │  (deadline resets on each MATCHING signal only)            │
-     │  Timeout or hard deadline    → ConversationLoadComplete    │
+     │  Phone deadline fires        → ConversationLoadComplete    │
      └────────────────────────────────────────────────────────────┘
+                            ↓
+     ┌── Phase 3: Long-lived listening (30s heartbeat) ──────────┐
+     │  Catches new messages, sent message echoes, etc.           │
+     │  Continues until conversation is closed                    │
+     └────────────────────────────────────────────────────────────┘
+                            ↓
+CloseConversation → Flag cleared → iced drops subscription
 ```
 
 **Key implementation details:**
 
 1. `conversation_message_subscription` in `subscriptions.rs` handles the entire flow
-2. Uses a state machine: `Init` → `Listening` (two phases) → `Done`
+2. Uses a state machine: `Init` → `Listening` (three phases)
 3. Match rules are set up BEFORE firing the D-Bus request (prevents race conditions)
 4. Messages arrive via `ConversationMessageReceived` and are inserted sorted by date
 5. Scroll is deferred until `ConversationStoreLoaded` (not per-message) to prevent jarring jumps
-6. `phone_deadline` persists in the state struct across `unfold` yields — only resets on matching signals, not unrelated D-Bus traffic
+6. `phone_deadline` persists in the state struct across `unfold` yields
+7. Subscription runs until the conversation is closed — no activity timeout
+8. `initial_load_complete` flag gates scroll prefetch (set when `ConversationLoadComplete` fires)
 
-**Why two phases?** The `conversationLoaded` signal fires when the local persistent store read completes. After a reboot, this store may be empty/sparse (0-1 messages), while the phone's response (via SMS plugin → `addMessages()`) delivers the actual messages asynchronously. Phase 2 catches these late-arriving messages.
+**Why two initial phases?** The `conversationLoaded` signal fires when the local persistent store read completes. After a reboot, this store may be empty/sparse (0-1 messages), while the phone's response (via SMS plugin → `addMessages()`) delivers the actual messages asynchronously. Phase 2 catches these late-arriving messages.
+
+**Why Phase 3?** The subscription continues listening after initial load so that:
+- Sent message echoes from the phone are caught for optimistic message reconciliation
+- New incoming messages appear in real time while viewing the thread
+- No subscription restart is needed after sending a reply
 
 **Timeout constants** (in `constants.rs`):
-- `MESSAGE_SUBSCRIPTION_TIMEOUT_SECS = 20` — hard timeout safety net for both phases
-- `PHONE_RESPONSE_TIMEOUT_MS = 8000` — activity timeout in Phase 2 (resets on matching signals)
+- `MESSAGE_SUBSCRIPTION_TIMEOUT_SECS = 20` — hard timeout for Phase 1 only (local store safety net)
+- `PHONE_RESPONSE_TIMEOUT_MS = 8000` — phone deadline in Phase 2 (signals initial load done)
 
 ```rust
 // State machine in subscriptions.rs
 enum ConversationMessageState {
     Init { thread_id, device_id, messages_per_page },
     Listening {
-        conn, stream, thread_id, device_id, messages_per_page,
-        start_time,           // for hard timeout
-        local_store_done,     // phase flag
-        total_message_count,  // from conversationLoaded (local store count)
-        phone_deadline,       // activity deadline, persists across unfold yields
+        conn, stream, thread_id, device_id,
+        local_store_done,      // phase flag
+        total_message_count,   // from conversationLoaded (local store count)
+        phone_deadline,        // signals initial load done when it fires
+        load_complete_emitted, // true after ConversationLoadComplete sent
     },
     Done,
 }
@@ -126,8 +144,8 @@ enum ConversationMessageState {
 // In app.rs - incremental display with deferred scroll
 Message::ConversationMessageReceived { thread_id, message } => {
     // Insert sorted by date, deduplicate via known_message_ids
+    // Also reconciles optimistic sent messages via body matching
     self.messages.insert(insert_pos, message);
-    // NO scroll here — deferred until ConversationStoreLoaded/ConversationLoadComplete
 }
 
 Message::ConversationStoreLoaded { thread_id, total_count } => {
@@ -135,7 +153,8 @@ Message::ConversationStoreLoaded { thread_id, total_count } => {
 }
 
 Message::ConversationLoadComplete { thread_id, total_count } => {
-    // Phone response done — finalize, clear sync indicator, drop subscription
+    // Initial load done — clear sync indicator, set initial_load_complete = true
+    // Subscription keeps running for new messages and sent echoes
 }
 ```
 
