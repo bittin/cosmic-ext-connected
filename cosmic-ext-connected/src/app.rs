@@ -857,15 +857,19 @@ impl Application for ConnectApplet {
             // Share
             Message::ShareFile(device_id) => {
                 self.pending_share_device = Some(device_id);
-                return cosmic::app::Task::perform(
-                    async {
-                        rfd::AsyncFileDialog::new()
-                            .pick_file()
-                            .await
-                            .map(|f| f.path().to_path_buf())
-                    },
-                    |path| cosmic::Action::App(Message::FileSelected(path)),
-                );
+                return cosmic::task::future(async {
+                    use cosmic::dialog::file_chooser;
+                    let result = file_chooser::open::Dialog::new()
+                        .title("Share File")
+                        .open_file()
+                        .await;
+                    match result {
+                        Ok(response) => {
+                            Message::FileSelected(response.url().to_file_path().ok())
+                        }
+                        Err(_) => Message::FileSelected(None),
+                    }
+                });
             }
             Message::FileSelected(path) => {
                 if let (Some(conn), Some(device_id)) =
