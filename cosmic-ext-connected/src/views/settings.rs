@@ -19,8 +19,7 @@ pub fn view_settings(config: &Config) -> Element<'_, Message> {
             widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
                 .class(cosmic::theme::Button::Link)
                 .on_press(Message::ToggleSettings),
-            text::heading(fl!("settings"))
-                .class(cosmic::theme::Text::Accent),
+            text::heading(fl!("settings")).class(cosmic::theme::Text::Accent),
         ]
         .spacing(sp.space_xxs)
         .align_y(Alignment::Center),
@@ -57,18 +56,14 @@ pub fn view_settings(config: &Config) -> Element<'_, Message> {
     .spacing(sp.space_xs)
     .align_y(Alignment::Center);
 
-    let notif_nav_btn = applet::menu_button(notif_nav_row)
-        .on_press(Message::OpenNotificationSettings);
+    let notif_nav_btn =
+        applet::menu_button(notif_nav_row).on_press(Message::OpenNotificationSettings);
 
     let sections = settings::view_column(vec![general_section.into()]);
 
     widget::container(
-        widget::column::with_children(vec![
-            header.into(),
-            sections.into(),
-            notif_nav_btn.into(),
-        ])
-        .spacing(sp.space_xxs),
+        widget::column::with_children(vec![header.into(), sections.into(), notif_nav_btn.into()])
+            .spacing(sp.space_xxs),
     )
     .width(Length::Fill)
     .into()
@@ -83,14 +78,12 @@ pub fn view_notification_settings(config: &Config) -> Element<'_, Message> {
         .on_press(Message::BackFromNotificationSettings);
 
     // SMS notifications section
-    let mut sms_section = settings::section()
-        .title(fl!("settings-sms-section"))
-        .add(
-            settings::item::builder(fl!("settings-sms-notifications"))
-                .toggler(config.sms_notifications, move |_| {
-                    Message::ToggleSetting(SettingKey::SmsNotifications)
-                }),
-        );
+    let mut sms_section = settings::section().title(fl!("settings-sms-section")).add(
+        settings::item::builder(fl!("settings-sms-notifications"))
+            .toggler(config.sms_notifications, move |_| {
+                Message::ToggleSetting(SettingKey::SmsNotifications)
+            }),
+    );
 
     if config.sms_notifications {
         sms_section = sms_section
@@ -109,14 +102,12 @@ pub fn view_notification_settings(config: &Config) -> Element<'_, Message> {
     }
 
     // Call notifications section
-    let mut call_section = settings::section()
-        .title(fl!("settings-call-section"))
-        .add(
-            settings::item::builder(fl!("settings-call-notifications"))
-                .toggler(config.call_notifications, move |_| {
-                    Message::ToggleSetting(SettingKey::CallNotifications)
-                }),
-        );
+    let mut call_section = settings::section().title(fl!("settings-call-section")).add(
+        settings::item::builder(fl!("settings-call-notifications"))
+            .toggler(config.call_notifications, move |_| {
+                Message::ToggleSetting(SettingKey::CallNotifications)
+            }),
+    );
 
     if config.call_notifications {
         call_section = call_section
@@ -135,14 +126,12 @@ pub fn view_notification_settings(config: &Config) -> Element<'_, Message> {
     }
 
     // File notifications section
-    let file_section = settings::section()
-        .title(fl!("settings-file-section"))
-        .add(
-            settings::item::builder(fl!("settings-file-notifications"))
-                .toggler(config.file_notifications, move |_| {
-                    Message::ToggleSetting(SettingKey::FileNotifications)
-                }),
-        );
+    let file_section = settings::section().title(fl!("settings-file-section")).add(
+        settings::item::builder(fl!("settings-file-notifications"))
+            .toggler(config.file_notifications, move |_| {
+                Message::ToggleSetting(SettingKey::FileNotifications)
+            }),
+    );
 
     // Notification timeout section
     let label = fl!(
@@ -176,19 +165,15 @@ pub fn view_notification_settings(config: &Config) -> Element<'_, Message> {
     let header = applet::padded_control(
         row![
             back_btn,
-            text::heading(fl!("notification-settings"))
-                .class(cosmic::theme::Text::Accent),
+            text::heading(fl!("notification-settings")).class(cosmic::theme::Text::Accent),
         ]
         .spacing(sp.space_xxs)
         .align_y(Alignment::Center),
     );
 
-    let content = widget::column::with_children(vec![
-        header.into(),
-        sections.into(),
-    ])
-    .spacing(sp.space_xxs)
-    .padding([0, sp.space_s as u16, sp.space_s as u16, sp.space_s as u16]);
+    let content = widget::column::with_children(vec![header.into(), sections.into()])
+        .spacing(sp.space_xxs)
+        .padding([0, sp.space_s as u16, sp.space_s as u16, sp.space_s as u16]);
 
     widget::container(widget::scrollable(content))
         .width(Length::Fill)

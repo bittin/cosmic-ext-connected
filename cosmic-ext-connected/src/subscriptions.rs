@@ -100,16 +100,10 @@ pub fn dbus_signal_subscription() -> impl futures_util::Stream<Item = Message> {
 
                 Some((
                     Message::DbusSignalReceived,
-                    DbusSubscriptionState::Listening {
-                        conn,
-                        stream,
-                    },
+                    DbusSubscriptionState::Listening { conn, stream },
                 ))
             }
-            DbusSubscriptionState::Listening {
-                conn,
-                mut stream,
-            } => {
+            DbusSubscriptionState::Listening { conn, mut stream } => {
                 // Wait for relevant signals - be selective to avoid excessive refreshes
                 loop {
                     match stream.next().await {
@@ -205,10 +199,7 @@ pub fn dbus_signal_subscription() -> impl futures_util::Stream<Item = Message> {
                                         tracing::debug!("D-Bus signal: {}.{}", interface, member);
                                         return Some((
                                             Message::DbusSignalReceived,
-                                            DbusSubscriptionState::Listening {
-                                                conn,
-                                                stream,
-                                            },
+                                            DbusSubscriptionState::Listening { conn, stream },
                                         ));
                                     }
                                 }
@@ -634,7 +625,9 @@ pub fn conversation_message_subscription(
                             tokio::time::sleep(std::time::Duration::from_secs(RETRY_DELAY_SECS))
                                 .await;
                             return Some((
-                                Message::SmsError("D-Bus connection failed for conversation".to_string()),
+                                Message::SmsError(
+                                    "D-Bus connection failed for conversation".to_string(),
+                                ),
                                 ConversationMessageState::Init {
                                     thread_id,
                                     device_id,
@@ -650,7 +643,9 @@ pub fn conversation_message_subscription(
                         Err(e) => {
                             tracing::error!("Failed to create DBus proxy for conversation: {}", e);
                             return Some((
-                                Message::SmsError("D-Bus proxy failed for conversation".to_string()),
+                                Message::SmsError(
+                                    "D-Bus proxy failed for conversation".to_string(),
+                                ),
                                 ConversationMessageState::Init {
                                     thread_id,
                                     device_id,
@@ -701,11 +696,8 @@ pub fn conversation_message_subscription(
 
                     // NOW fire D-Bus requests - after match rules are set up
                     // This ensures we don't miss any signals
-                    let device_path = format!(
-                        "{}/devices/{}",
-                        kdeconnect_dbus::BASE_PATH,
-                        device_id
-                    );
+                    let device_path =
+                        format!("{}/devices/{}", kdeconnect_dbus::BASE_PATH, device_id);
 
                     // Fire TWO requests:
                     // 1. SMS plugin's requestConversation → sends network packet to phone →
@@ -717,11 +709,8 @@ pub fn conversation_message_subscription(
                     //
                     // The SMS plugin request primes the daemon cache; the Conversations
                     // request provides the per-message signals for UI display.
-                    let sms_path = format!(
-                        "{}/devices/{}/sms",
-                        kdeconnect_dbus::BASE_PATH,
-                        device_id
-                    );
+                    let sms_path =
+                        format!("{}/devices/{}/sms", kdeconnect_dbus::BASE_PATH, device_id);
 
                     // Fire SMS plugin request first (cache priming, async - phone responds later)
                     match kdeconnect_dbus::plugins::SmsProxy::builder(&conn)
@@ -735,7 +724,10 @@ pub fn conversation_message_subscription(
                                     .request_conversation(thread_id, 0, messages_per_page as i64)
                                     .await
                                 {
-                                    tracing::warn!("SMS plugin request_conversation failed (non-fatal): {}", e);
+                                    tracing::warn!(
+                                        "SMS plugin request_conversation failed (non-fatal): {}",
+                                        e
+                                    );
                                 } else {
                                     tracing::debug!(
                                         "SMS plugin request_conversation fired for thread {} (cache priming)",
@@ -854,9 +846,8 @@ pub fn conversation_message_subscription(
                     // Phase 3 (after load complete): Subscription continues silently with
                     //   a heartbeat sleep, catching new messages (including sent echoes)
                     //   until iced drops it on CloseConversation.
-                    let local_store_timeout = std::time::Duration::from_secs(
-                        MESSAGE_SUBSCRIPTION_TIMEOUT_SECS,
-                    );
+                    let local_store_timeout =
+                        std::time::Duration::from_secs(MESSAGE_SUBSCRIPTION_TIMEOUT_SECS);
                     let phone_wait = std::time::Duration::from_millis(PHONE_RESPONSE_TIMEOUT_MS);
                     // Hard deadline only for local store phase (before conversationLoaded)
                     let local_store_deadline = if !local_store_done && !load_complete_emitted {

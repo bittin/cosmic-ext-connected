@@ -6,9 +6,7 @@
 
 use crate::app::Message;
 use crate::constants::dbus::RETRY_DELAY_SECS;
-use crate::constants::sms::{
-    CONVERSATION_LIST_PHONE_WAIT_MS, CONVERSATION_TIMEOUT_CACHED_SECS,
-};
+use crate::constants::sms::{CONVERSATION_LIST_PHONE_WAIT_MS, CONVERSATION_TIMEOUT_CACHED_SECS};
 use futures_util::StreamExt;
 use kdeconnect_dbus::plugins::{
     parse_sms_message, ConversationSummary, ConversationsProxy, SmsProxy,
@@ -105,10 +103,7 @@ pub fn conversation_list_subscription(
 
                     if let Ok(rule) = created_rule {
                         if let Err(e) = dbus_proxy.add_match_rule(rule).await {
-                            tracing::warn!(
-                                "Failed to add conversationCreated match rule: {}",
-                                e
-                            );
+                            tracing::warn!("Failed to add conversationCreated match rule: {}", e);
                         } else {
                             tracing::debug!("Added match rule for conversationCreated signals");
                         }
@@ -123,10 +118,7 @@ pub fn conversation_list_subscription(
 
                     if let Ok(rule) = updated_rule {
                         if let Err(e) = dbus_proxy.add_match_rule(rule).await {
-                            tracing::warn!(
-                                "Failed to add conversationUpdated match rule: {}",
-                                e
-                            );
+                            tracing::warn!("Failed to add conversationUpdated match rule: {}", e);
                         } else {
                             tracing::debug!("Added match rule for conversationUpdated signals");
                         }
@@ -141,10 +133,7 @@ pub fn conversation_list_subscription(
 
                     if let Ok(rule) = loaded_rule {
                         if let Err(e) = dbus_proxy.add_match_rule(rule).await {
-                            tracing::warn!(
-                                "Failed to add conversationLoaded match rule: {}",
-                                e
-                            );
+                            tracing::warn!("Failed to add conversationLoaded match rule: {}", e);
                         } else {
                             tracing::debug!("Added match rule for conversationLoaded signals");
                         }
@@ -154,11 +143,8 @@ pub fn conversation_list_subscription(
                     let stream = zbus::MessageStream::from(&conn);
 
                     // Build conversations proxy for the device
-                    let device_path = format!(
-                        "{}/devices/{}",
-                        kdeconnect_dbus::BASE_PATH,
-                        device_id
-                    );
+                    let device_path =
+                        format!("{}/devices/{}", kdeconnect_dbus::BASE_PATH, device_id);
 
                     let conversations_proxy = match ConversationsProxy::builder(&conn)
                         .path(device_path.as_str())
@@ -194,8 +180,7 @@ pub fn conversation_list_subscription(
                                 }
                             }
                             // Sort by timestamp (newest first) and deduplicate
-                            initial_conversations
-                                .sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+                            initial_conversations.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
                             let mut seen = std::collections::HashSet::new();
                             initial_conversations.retain(|c| seen.insert(c.thread_id));
                             tracing::info!(
@@ -214,11 +199,8 @@ pub fn conversation_list_subscription(
                     //
                     // Without the SMS plugin request, the Conversations interface may only
                     // read from an empty local store and emit no signals.
-                    let sms_path = format!(
-                        "{}/devices/{}/sms",
-                        kdeconnect_dbus::BASE_PATH,
-                        device_id
-                    );
+                    let sms_path =
+                        format!("{}/devices/{}/sms", kdeconnect_dbus::BASE_PATH, device_id);
 
                     match SmsProxy::builder(&conn)
                         .path(sms_path.as_str())
@@ -240,10 +222,7 @@ pub fn conversation_list_subscription(
                                 }
                             }
                             Err(e) => {
-                                tracing::warn!(
-                                    "Failed to create SMS proxy (non-fatal): {}",
-                                    e
-                                );
+                                tracing::warn!("Failed to create SMS proxy (non-fatal): {}", e);
                             }
                         },
                         None => {
@@ -289,8 +268,8 @@ pub fn conversation_list_subscription(
                     }
 
                     // No cached data — use longer phone wait (cold start)
-                    let phone_deadline = now
-                        + tokio::time::Duration::from_millis(CONVERSATION_LIST_PHONE_WAIT_MS);
+                    let phone_deadline =
+                        now + tokio::time::Duration::from_millis(CONVERSATION_LIST_PHONE_WAIT_MS);
                     Some((
                         Message::ConversationSyncStarted {
                             device_id: device_id.clone(),
@@ -339,8 +318,8 @@ pub fn conversation_list_subscription(
                         device_id
                     );
                     let now = tokio::time::Instant::now();
-                    let phone_deadline = now
-                        + tokio::time::Duration::from_secs(CONVERSATION_TIMEOUT_CACHED_SECS);
+                    let phone_deadline =
+                        now + tokio::time::Duration::from_secs(CONVERSATION_TIMEOUT_CACHED_SECS);
                     Some((
                         Message::ConversationSyncStarted {
                             device_id: device_id.clone(),

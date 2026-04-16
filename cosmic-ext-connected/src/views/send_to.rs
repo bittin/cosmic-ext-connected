@@ -55,8 +55,8 @@ pub fn view_send_to(params: SendToParams<'_>) -> Element<'_, Message> {
     .spacing(sp.space_xs)
     .align_y(Alignment::Center);
 
-    let share_file_item = applet::menu_button(share_file_row)
-        .on_press(Message::ShareFile(device_id_for_file));
+    let share_file_item =
+        applet::menu_button(share_file_row).on_press(Message::ShareFile(device_id_for_file));
 
     // Send clipboard list item
     let send_clipboard_row = row![
@@ -79,8 +79,8 @@ pub fn view_send_to(params: SendToParams<'_>) -> Element<'_, Message> {
     .spacing(sp.space_xs)
     .align_y(Alignment::Center);
 
-    let send_ping_item = applet::menu_button(send_ping_row)
-        .on_press(Message::SendPing(device_id_for_ping));
+    let send_ping_item =
+        applet::menu_button(send_ping_row).on_press(Message::SendPing(device_id_for_ping));
 
     // Share text section
     let share_text_heading = text::heading(fl!("share-text"));
@@ -120,12 +120,7 @@ pub fn view_send_to(params: SendToParams<'_>) -> Element<'_, Message> {
             send_ping_item,
             divider(),
             applet::padded_control(
-                column![
-                    share_text_heading,
-                    share_text_input,
-                    send_text_btn,
-                ]
-                .spacing(sp.space_xs),
+                column![share_text_heading, share_text_input, send_text_btn,].spacing(sp.space_xs),
             ),
         ]
         .spacing(sp.space_xxxs)

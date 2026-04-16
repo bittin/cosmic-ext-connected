@@ -23,7 +23,7 @@ pub use ping::PingProxy;
 pub use share::ShareProxy;
 pub use sms::{
     is_address_valid, parse_conversations, parse_messages, parse_sms_message, Attachment,
-    ConversationSummary, ConversationsProxy, MessageType, SmsMessage, SmsProxy,
-    MAX_CONVERSATIONS, OPTIMISTIC_MESSAGE_UID,
+    ConversationSummary, ConversationsProxy, MessageType, SmsMessage, SmsProxy, MAX_CONVERSATIONS,
+    OPTIMISTIC_MESSAGE_UID,
 };
 pub use telephony::TelephonyProxy;

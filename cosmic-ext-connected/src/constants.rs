@@ -54,7 +54,6 @@ pub mod sms {
     /// Polling delays for fallback conversation loading (milliseconds).
     /// We poll multiple times with increasing delays to give the phone time to sync.
     pub const FALLBACK_POLLING_DELAYS_MS: &[u64] = &[500, 1000, 1500, 2000, 3000];
-
 }
 
 /// Refresh and polling interval constants.

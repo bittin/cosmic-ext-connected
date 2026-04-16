@@ -362,10 +362,7 @@ mod tests {
     #[test]
     fn test_group_display_name_exactly_limit() {
         let lookup = lookup_with_contacts();
-        let addrs = vec![
-            "+1-555-123-4567".to_string(),
-            "+1-555-987-6543".to_string(),
-        ];
+        let addrs = vec!["+1-555-123-4567".to_string(), "+1-555-987-6543".to_string()];
         assert_eq!(lookup.get_group_display_name(&addrs, 2), "Alice, Bob");
     }
 
@@ -377,19 +374,13 @@ mod tests {
             "+1-555-987-6543".to_string(),
             "+1-555-000-1111".to_string(),
         ];
-        assert_eq!(
-            lookup.get_group_display_name(&addrs, 2),
-            "Alice, Bob, ..."
-        );
+        assert_eq!(lookup.get_group_display_name(&addrs, 2), "Alice, Bob, ...");
     }
 
     #[test]
     fn test_group_display_name_unknown_numbers() {
         let lookup = lookup_with_contacts();
-        let addrs = vec![
-            "+1-555-123-4567".to_string(),
-            "+1-444-000-0000".to_string(),
-        ];
+        let addrs = vec!["+1-555-123-4567".to_string(), "+1-444-000-0000".to_string()];
         // Alice is known, second number falls back to raw number
         assert_eq!(
             lookup.get_group_display_name(&addrs, 3),

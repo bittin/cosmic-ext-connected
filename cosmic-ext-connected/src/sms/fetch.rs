@@ -621,4 +621,3 @@ pub async fn prefetch_conversations_async(
         }
     }
 }
-

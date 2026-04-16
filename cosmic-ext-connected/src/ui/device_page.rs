@@ -82,8 +82,8 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         .spacing(sp.space_xs)
         .align_y(Alignment::Center);
 
-        let sms_item = applet::menu_button(sms_row)
-            .on_press(Message::OpenSmsView(device_id_for_sms));
+        let sms_item =
+            applet::menu_button(sms_row).on_press(Message::OpenSmsView(device_id_for_sms));
 
         // Send to device action item
         let sendto_row = row![
@@ -95,11 +95,10 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         .spacing(sp.space_xs)
         .align_y(Alignment::Center);
 
-        let sendto_item = applet::menu_button(sendto_row)
-            .on_press(Message::OpenSendToView(
-                device_id_for_sendto,
-                device_type_for_sendto,
-            ));
+        let sendto_item = applet::menu_button(sendto_row).on_press(Message::OpenSendToView(
+            device_id_for_sendto,
+            device_type_for_sendto,
+        ));
 
         // Media controls action item
         let media_row = row![
@@ -111,8 +110,8 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         .spacing(sp.space_xs)
         .align_y(Alignment::Center);
 
-        let media_item = applet::menu_button(media_row)
-            .on_press(Message::OpenMediaView(device_id_for_media));
+        let media_item =
+            applet::menu_button(media_row).on_press(Message::OpenMediaView(device_id_for_media));
 
         // Find Phone action item (no chevron - immediate action)
         let find_row = row![
@@ -123,8 +122,8 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         .spacing(sp.space_xs)
         .align_y(Alignment::Center);
 
-        let find_item = applet::menu_button(find_row)
-            .on_press(Message::FindMyPhone(device_id_for_find));
+        let find_item =
+            applet::menu_button(find_row).on_press(Message::FindMyPhone(device_id_for_find));
 
         column![sms_item, sendto_item, media_item, find_item,]
             .spacing(sp.space_xxxs)
@@ -155,10 +154,9 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
 
     let divider = || applet::padded_control(widget::divider::horizontal::default());
 
-    let mut content =
-        column![status_bar, device_info, status_row, divider(), actions,]
-            .spacing(sp.space_xs)
-            .padding([0, sp.space_s as u16, sp.space_s as u16, sp.space_s as u16]);
+    let mut content = column![status_bar, device_info, status_row, divider(), actions,]
+        .spacing(sp.space_xs)
+        .padding([0, sp.space_s as u16, sp.space_s as u16, sp.space_s as u16]);
 
     content = content.push(divider());
     content = content.push(pairing_section);
@@ -208,8 +206,7 @@ fn build_status_row<'a>(device: &'a DeviceInfo) -> Element<'a, Message> {
             if level >= 0 {
                 let battery_icon_name = get_battery_icon_name(level, charging);
                 row![
-                    text::caption(format!("{}%", level))
-                        .class(cosmic::theme::Text::Accent),
+                    text::caption(format!("{}%", level)).class(cosmic::theme::Text::Accent),
                     icon::from_name(battery_icon_name).size(24),
                 ]
                 .spacing(sp.space_xxxs)

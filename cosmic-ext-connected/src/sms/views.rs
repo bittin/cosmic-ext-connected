@@ -196,118 +196,116 @@ pub fn view_conversation_list(params: ConversationListParams<'_>) -> Element<'_,
             .push(new_msg_btn),
     );
 
-    let content: Element<Message> = if is_loading_conversations(params.loading_state)
-        && params.conversations.is_empty()
-    {
-        widget::container(
-            column![text::body(conversation_loading_text(params.loading_state)),]
-                .align_x(Alignment::Center),
-        )
-        .center(Length::Fill)
-        .into()
-    } else if params.conversations.is_empty() {
-        widget::container(
-            column![
-                widget::icon::from_name("mail-message-new-symbolic").size(48),
-                text::heading(fl!("no-conversations")),
-                text::caption(fl!("start-new-message")),
-            ]
-            .spacing(sp.space_xs)
-            .align_x(Alignment::Center),
-        )
-        .center(Length::Fill)
-        .into()
-    } else {
-        // Build conversation list (limited to conversations_displayed)
-        let mut conv_column = column![].spacing(sp.space_xxxs);
-        for conv in params
-            .conversations
-            .iter()
-            .take(params.conversations_displayed)
-        {
-            let display_name = params.contacts.get_group_display_name(&conv.addresses, 3);
-            let date_str = format_timestamp(conv.timestamp);
-
-            // Build snippet: show attachment indicator if needed
-            let snippet_element: Element<Message> = if conv.has_attachments
-                && conv.last_message.is_empty()
-            {
-                // MMS with only attachments (no text body)
-                row![
-                    widget::icon::from_name("mail-attachment-symbolic").size(14),
-                    text::caption(fl!("attachment")),
-                ]
-                .spacing(sp.space_xxxs)
-                .align_y(Alignment::Center)
-                .into()
-            } else if conv.has_attachments {
-                // MMS with both text and attachments
-                let snippet = conv.last_message.chars().take(50).collect::<String>();
-                row![
-                    widget::icon::from_name("mail-attachment-symbolic").size(14),
-                    text::caption(snippet),
-                ]
-                .spacing(sp.space_xxxs)
-                .align_y(Alignment::Center)
-                .into()
-            } else {
-                let snippet = conv.last_message.chars().take(50).collect::<String>();
-                text::caption(snippet).into()
-            };
-
-            let conv_row = applet::menu_button(
-                row![
-                    column![text::body(display_name), snippet_element,].spacing(2),
-                    widget::space::horizontal(),
-                    text::caption(date_str),
-                    widget::icon::from_name("go-next-symbolic").size(16),
-                ]
-                .spacing(sp.space_xxs)
-                .align_y(Alignment::Center),
-            )
-            .on_press(Message::OpenConversation(conv.thread_id));
-
-            conv_column = conv_column.push(conv_row);
-        }
-
-        // Add "Load More" button if there are more conversations
-        if params.conversations_displayed < params.conversations.len() {
-            let load_more_row = row![
-                widget::icon::from_name("go-down-symbolic").size(16),
-                text::body(fl!("load-more-conversations")),
-            ]
-            .spacing(sp.space_xxs)
-            .align_y(Alignment::Center);
-
-            let load_more_button = applet::menu_button(
-                widget::container(load_more_row)
-                    .width(Length::Fill)
+    let content: Element<Message> =
+        if is_loading_conversations(params.loading_state) && params.conversations.is_empty() {
+            widget::container(
+                column![text::body(conversation_loading_text(params.loading_state)),]
                     .align_x(Alignment::Center),
             )
-            .on_press(Message::LoadMoreConversations);
+            .center(Length::Fill)
+            .into()
+        } else if params.conversations.is_empty() {
+            widget::container(
+                column![
+                    widget::icon::from_name("mail-message-new-symbolic").size(48),
+                    text::heading(fl!("no-conversations")),
+                    text::caption(fl!("start-new-message")),
+                ]
+                .spacing(sp.space_xs)
+                .align_x(Alignment::Center),
+            )
+            .center(Length::Fill)
+            .into()
+        } else {
+            // Build conversation list (limited to conversations_displayed)
+            let mut conv_column = column![].spacing(sp.space_xxxs);
+            for conv in params
+                .conversations
+                .iter()
+                .take(params.conversations_displayed)
+            {
+                let display_name = params.contacts.get_group_display_name(&conv.addresses, 3);
+                let date_str = format_timestamp(conv.timestamp);
 
-            conv_column = conv_column.push(load_more_button);
-        }
+                // Build snippet: show attachment indicator if needed
+                let snippet_element: Element<Message> =
+                    if conv.has_attachments && conv.last_message.is_empty() {
+                        // MMS with only attachments (no text body)
+                        row![
+                            widget::icon::from_name("mail-attachment-symbolic").size(14),
+                            text::caption(fl!("attachment")),
+                        ]
+                        .spacing(sp.space_xxxs)
+                        .align_y(Alignment::Center)
+                        .into()
+                    } else if conv.has_attachments {
+                        // MMS with both text and attachments
+                        let snippet = conv.last_message.chars().take(50).collect::<String>();
+                        row![
+                            widget::icon::from_name("mail-attachment-symbolic").size(14),
+                            text::caption(snippet),
+                        ]
+                        .spacing(sp.space_xxxs)
+                        .align_y(Alignment::Center)
+                        .into()
+                    } else {
+                        let snippet = conv.last_message.chars().take(50).collect::<String>();
+                        text::caption(snippet).into()
+                    };
 
-        // Show sync progress indicator at bottom when still syncing
-        if params.sync_active {
-            conv_column = conv_column.push(
-                applet::padded_control(
+                let conv_row = applet::menu_button(
                     row![
-                        widget::icon::from_name("emblem-synchronizing-symbolic").size(16),
-                        text::caption(fl!("syncing-conversations")),
+                        column![text::body(display_name), snippet_element,].spacing(2),
+                        widget::space::horizontal(),
+                        text::caption(date_str),
+                        widget::icon::from_name("go-next-symbolic").size(16),
                     ]
                     .spacing(sp.space_xxs)
                     .align_y(Alignment::Center),
                 )
-                .align_x(Alignment::Center),
-            );
-        }
+                .on_press(Message::OpenConversation(conv.thread_id));
 
-        widget::scrollable(conv_column.padding([0, sp.space_xxs as u16]))
-            .width(Length::Fill)
-            .into()
-    };
+                conv_column = conv_column.push(conv_row);
+            }
+
+            // Add "Load More" button if there are more conversations
+            if params.conversations_displayed < params.conversations.len() {
+                let load_more_row = row![
+                    widget::icon::from_name("go-down-symbolic").size(16),
+                    text::body(fl!("load-more-conversations")),
+                ]
+                .spacing(sp.space_xxs)
+                .align_y(Alignment::Center);
+
+                let load_more_button = applet::menu_button(
+                    widget::container(load_more_row)
+                        .width(Length::Fill)
+                        .align_x(Alignment::Center),
+                )
+                .on_press(Message::LoadMoreConversations);
+
+                conv_column = conv_column.push(load_more_button);
+            }
+
+            // Show sync progress indicator at bottom when still syncing
+            if params.sync_active {
+                conv_column = conv_column.push(
+                    applet::padded_control(
+                        row![
+                            widget::icon::from_name("emblem-synchronizing-symbolic").size(16),
+                            text::caption(fl!("syncing-conversations")),
+                        ]
+                        .spacing(sp.space_xxs)
+                        .align_y(Alignment::Center),
+                    )
+                    .align_x(Alignment::Center),
+                );
+            }
+
+            widget::scrollable(conv_column.padding([0, sp.space_xxs as u16]))
+                .width(Length::Fill)
+                .into()
+        };
 
     column![header, content,]
         .spacing(sp.space_xxs)
@@ -348,8 +346,7 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
         widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
             .class(cosmic::theme::Button::Link)
             .on_press(Message::CloseConversation),
-        text::heading(display_name)
-            .class(cosmic::theme::Text::Accent),
+        text::heading(display_name).class(cosmic::theme::Text::Accent),
     ]
     .spacing(sp.space_xxs)
     .align_y(Alignment::Center);
@@ -366,9 +363,7 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
         );
     }
 
-    let header = applet::padded_control(
-        header_row.push(widget::space::horizontal()),
-    );
+    let header = applet::padded_control(header_row.push(widget::space::horizontal()));
 
     // Show loading indicator only when loading AND no messages yet
     // Once messages start arriving, show them (scrolled to bottom)
@@ -391,7 +386,9 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
         let bubble_max_width = (360.0_f32 * 0.75) as u16;
         let loading_more = is_loading_more(params.loading_state);
 
-        let mut msg_column = column![].spacing(sp.space_xs).padding([sp.space_xxs, sp.space_xs]);
+        let mut msg_column = column![]
+            .spacing(sp.space_xs)
+            .padding([sp.space_xxs, sp.space_xs]);
 
         // Show loading indicator at top when fetching older messages
         if loading_more {
@@ -481,12 +478,9 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
 
             // Bubble with optional "Hold to copy" hint (only after 500ms)
             let bubble_element: Element<Message> = if show_hint {
-                column![
-                    bubble_with_press,
-                    text::caption(fl!("hold-to-copy")),
-                ]
-                .spacing(2)
-                .into()
+                column![bubble_with_press, text::caption(fl!("hold-to-copy")),]
+                    .spacing(2)
+                    .into()
             } else {
                 bubble_with_press.into()
             };
@@ -501,8 +495,7 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
             });
             let msg_row: Element<Message> = if is_received {
                 if is_group {
-                    let sender_name =
-                        params.contacts.get_name_or_number(msg.primary_address());
+                    let sender_name = params.contacts.get_name_or_number(msg.primary_address());
                     column![
                         text::caption(sender_name),
                         row![bubble_element, widget::space::horizontal(),].width(Length::Fill),
@@ -560,21 +553,19 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
             .align_y(Alignment::Center),
     );
 
-    let mut thread_column = column![
-        header,
-        content,
-        compose_row,
-    ]
-    .spacing(sp.space_xxxs)
-    .width(Length::Fill)
-    .height(Length::Fill);
+    let mut thread_column = column![header, content, compose_row,]
+        .spacing(sp.space_xxxs)
+        .width(Length::Fill)
+        .height(Length::Fill);
 
     if let Some(msg) = params.status_message {
         thread_column = thread_column.push(
-            widget::container(text::caption(msg).wrapping(cosmic::iced::widget::text::Wrapping::Word))
-                .padding([sp.space_xxxs, sp.space_xs])
-                .width(Length::Fill)
-                .class(cosmic::theme::Container::Card),
+            widget::container(
+                text::caption(msg).wrapping(cosmic::iced::widget::text::Wrapping::Word),
+            )
+            .padding([sp.space_xxxs, sp.space_xs])
+            .width(Length::Fill)
+            .class(cosmic::theme::Container::Card),
         );
     }
 
@@ -607,8 +598,7 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
             widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
                 .class(cosmic::theme::Button::Link)
                 .on_press(Message::CloseNewMessage),
-            text::heading(heading_text)
-                .class(cosmic::theme::Text::Accent),
+            text::heading(heading_text).class(cosmic::theme::Text::Accent),
             widget::space::horizontal(),
         ]
         .spacing(sp.space_xxs)
@@ -650,16 +640,18 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
     };
 
     // Recipient input with action icon
-    let recipient_input =
-        widget::text_input(fl!("recipient-placeholder"), params.recipient_input)
-            .on_input(Message::NewMessageRecipientInput)
-            .on_submit(|_| Message::AddManualRecipient)
-            .width(Length::Fill)
-            .id(widget::Id::new("new-message-recipient"));
+    let recipient_input = widget::text_input(fl!("recipient-placeholder"), params.recipient_input)
+        .on_input(Message::NewMessageRecipientInput)
+        .on_submit(|_| Message::AddManualRecipient)
+        .width(Length::Fill)
+        .id(widget::Id::new("new-message-recipient"));
 
     let input_valid = is_address_valid(params.recipient_input);
     let action_icon: Element<Message> = if params.recipient_input.is_empty() {
-        widget::Space::new().width(Length::Fixed(20.0)).height(Length::Fixed(20.0)).into()
+        widget::Space::new()
+            .width(Length::Fixed(20.0))
+            .height(Length::Fixed(20.0))
+            .into()
     } else if input_valid {
         widget::button::icon(widget::icon::from_name("list-add-symbolic").size(20))
             .on_press(Message::AddManualRecipient)
@@ -686,8 +678,7 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
             let contact_row = applet::menu_button(
                 row![
                     widget::icon::from_name("contact-new-symbolic").size(20),
-                    column![text::body(name.clone()), text::caption(phone.clone()),]
-                        .spacing(2),
+                    column![text::body(name.clone()), text::caption(phone.clone()),].spacing(2),
                 ]
                 .spacing(sp.space_xxs)
                 .align_y(Alignment::Center),
@@ -709,8 +700,7 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
         .width(Length::Fill);
 
     // Send button — enabled when at least one recipient and body is non-empty
-    let send_enabled =
-        !params.recipients.is_empty() && !params.body.is_empty() && !params.sending;
+    let send_enabled = !params.recipients.is_empty() && !params.body.is_empty() && !params.sending;
 
     let send_btn = if params.sending {
         widget::button::standard(fl!("sending"))

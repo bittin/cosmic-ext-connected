@@ -205,8 +205,7 @@ pub fn view_media_player(info: &MediaInfo) -> Element<'_, Message> {
     let volume_row = row![
         widget::icon::from_name(volume_icon).size(20),
         volume_slider,
-        text::caption(format!("{}%", info.volume))
-            .width(Length::Fixed(36.0)),
+        text::caption(format!("{}%", info.volume)).width(Length::Fixed(36.0)),
     ]
     .spacing(sp.space_xxs)
     .align_y(Alignment::Center)

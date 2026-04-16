@@ -19,8 +19,8 @@ use crate::media::{
 use crate::sms::{
     conversation_list_subscription, fetch_conversations_async, fetch_older_messages_async,
     prefetch_conversations_async, request_attachment_async, send_new_sms_async, send_sms_async,
-    view_conversation_list, view_message_thread, view_new_message,
-    ConversationListParams, MessageThreadParams, NewMessageParams,
+    view_conversation_list, view_message_thread, view_new_message, ConversationListParams,
+    MessageThreadParams, NewMessageParams,
 };
 use crate::subscriptions::{
     call_notification_subscription, conversation_message_subscription, dbus_signal_subscription,
@@ -30,10 +30,10 @@ use crate::ui;
 use crate::views::send_to::{view_send_to, SendToParams};
 use crate::views::settings::{view_notification_settings, view_settings};
 use cosmic::app::Core;
+use cosmic::iced::core::window;
 use cosmic::iced::platform_specific::shell::wayland::commands::popup::{destroy_popup, get_popup};
 use cosmic::iced::widget::{column, scrollable};
 use cosmic::iced::{clipboard, Alignment, Subscription};
-use cosmic::iced::core::window;
 use cosmic::widget;
 use cosmic::{Application, Element};
 use kdeconnect_dbus::{
@@ -259,24 +259,13 @@ pub enum Message {
 
     // Subscription-based message loading
     /// Single message received from conversation subscription (incremental loading)
-    ConversationMessageReceived {
-        thread_id: i64,
-        message: SmsMessage,
-    },
+    ConversationMessageReceived { thread_id: i64, message: SmsMessage },
     /// Local store read complete - scroll to bottom, keep listening for phone data
-    ConversationStoreLoaded {
-        thread_id: i64,
-        total_count: u64,
-    },
+    ConversationStoreLoaded { thread_id: i64, total_count: u64 },
     /// All loading complete (phone response timeout) - finalize and drop subscription
-    ConversationLoadComplete {
-        thread_id: i64,
-        total_count: u64,
-    },
+    ConversationLoadComplete { thread_id: i64, total_count: u64 },
     /// Fire-and-forget D-Bus request completed, start listening for signals
-    ConversationLoadStarted {
-        thread_id: i64,
-    },
+    ConversationLoadStarted { thread_id: i64 },
 
     // Subscription-based conversation list loading
     /// Single conversation received via subscription (incremental update)
@@ -285,13 +274,9 @@ pub enum Message {
         conversation: ConversationSummary,
     },
     /// Conversation list sync started (show loading indicator)
-    ConversationSyncStarted {
-        device_id: String,
-    },
+    ConversationSyncStarted { device_id: String },
     /// Conversation list sync complete (hide loading indicator)
-    ConversationSyncComplete {
-        device_id: String,
-    },
+    ConversationSyncComplete { device_id: String },
 }
 
 /// Keys for boolean settings that can be toggled.
@@ -565,7 +550,11 @@ impl ConnectApplet {
 
     /// Generate contact suggestions with phone numbers sorted by conversation recency.
     /// Returns (contact_name, phone_number) tuples, limited to max_suggestions.
-    fn generate_contact_suggestions(&self, query: &str, max_suggestions: usize) -> Vec<(String, String)> {
+    fn generate_contact_suggestions(
+        &self,
+        query: &str,
+        max_suggestions: usize,
+    ) -> Vec<(String, String)> {
         if query.is_empty() {
             return Vec::new();
         }
@@ -857,8 +846,11 @@ impl Application for ConnectApplet {
                 }
                 Err(e) => {
                     tracing::error!("Find my phone failed: {}", e);
-                    return self
-                        .set_transient_status(format!("{}: {}", fl!("find-phone-failed"), e));
+                    return self.set_transient_status(format!(
+                        "{}: {}",
+                        fl!("find-phone-failed"),
+                        e
+                    ));
                 }
             },
 
@@ -872,9 +864,7 @@ impl Application for ConnectApplet {
                         .open_file()
                         .await;
                     match result {
-                        Ok(response) => {
-                            Message::FileSelected(response.url().to_file_path().ok())
-                        }
+                        Ok(response) => Message::FileSelected(response.url().to_file_path().ok()),
                         Err(_) => Message::FileSelected(None),
                     }
                 });
@@ -1151,8 +1141,7 @@ impl Application for ConnectApplet {
                         cosmic::app::Task::perform(
                             async move {
                                 let contacts =
-                                    ContactLookup::load_for_device(&device_id_for_contacts)
-                                        .await;
+                                    ContactLookup::load_for_device(&device_id_for_contacts).await;
                                 Message::ContactsLoaded(device_id_for_contacts, contacts)
                             },
                             cosmic::Action::App,
@@ -1184,8 +1173,7 @@ impl Application for ConnectApplet {
                         if let Some((_, prefetched)) = self.sms_prefetch.take() {
                             // Seed last_seen_sms to prevent false notifications
                             for conv in &prefetched {
-                                let current =
-                                    self.last_seen_sms.get(&conv.thread_id).copied();
+                                let current = self.last_seen_sms.get(&conv.thread_id).copied();
                                 if current.is_none() || current < Some(conv.timestamp) {
                                     self.last_seen_sms.insert(conv.thread_id, conv.timestamp);
                                 }
@@ -1240,8 +1228,7 @@ impl Application for ConnectApplet {
                 // Guard: need D-Bus connection and device ID for the subscription
                 if self.dbus_connection.is_some() && self.sms_device_id.is_some() {
                     // Find the conversation for header info and deduplication
-                    let conversation =
-                        self.conversations.iter().find(|c| c.thread_id == thread_id);
+                    let conversation = self.conversations.iter().find(|c| c.thread_id == thread_id);
 
                     let addresses = conversation.map(|c| c.addresses.clone());
 
@@ -1362,7 +1349,10 @@ impl Application for ConnectApplet {
             }
 
             // Subscription-based conversation list loading handlers
-            Message::ConversationReceived { device_id, conversation } => {
+            Message::ConversationReceived {
+                device_id,
+                conversation,
+            } => {
                 // Guard: Only process if for current device
                 if self.sms_device_id.as_ref() != Some(&device_id) {
                     tracing::debug!(
@@ -1394,13 +1384,16 @@ impl Application for ConnectApplet {
                 }
 
                 // Re-sort by timestamp (newest first) and truncate
-                self.conversations.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-                self.conversations.truncate(kdeconnect_dbus::plugins::MAX_CONVERSATIONS);
+                self.conversations
+                    .sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+                self.conversations
+                    .truncate(kdeconnect_dbus::plugins::MAX_CONVERSATIONS);
 
                 // Update last_seen for notification deduplication
                 let current = self.last_seen_sms.get(&conversation.thread_id).copied();
                 if current.is_none() || current < Some(conversation.timestamp) {
-                    self.last_seen_sms.insert(conversation.thread_id, conversation.timestamp);
+                    self.last_seen_sms
+                        .insert(conversation.thread_id, conversation.timestamp);
                 }
 
                 // Transition from loading spinner to showing data (but keep sync indicator)
@@ -1548,7 +1541,10 @@ impl Application for ConnectApplet {
 
                             return scrollable::snap_to(
                                 widget::Id::new("message-thread"),
-                                scrollable::RelativeOffset { x: Some(0.0), y: Some(relative_y) },
+                                scrollable::RelativeOffset {
+                                    x: Some(0.0),
+                                    y: Some(relative_y),
+                                },
                             );
                         }
                     } else {
@@ -1719,11 +1715,7 @@ impl Application for ConnectApplet {
                 // Extract sub_id from first message (for MMS group messaging)
                 if self.current_thread_sub_id.is_none() {
                     self.current_thread_sub_id = Some(message.sub_id);
-                    tracing::debug!(
-                        "Set sub_id to {} for thread {}",
-                        message.sub_id,
-                        thread_id
-                    );
+                    tracing::debug!("Set sub_id to {} for thread {}", message.sub_id, thread_id);
                 }
 
                 // Check if this confirms our pending sent message
@@ -1765,7 +1757,10 @@ impl Application for ConnectApplet {
                 }
                 return cosmic::app::Task::none();
             }
-            Message::ConversationStoreLoaded { thread_id, total_count } => {
+            Message::ConversationStoreLoaded {
+                thread_id,
+                total_count,
+            } => {
                 // Local store read complete - scroll to show messages while
                 // continuing to listen for phone response data
                 if self.current_thread_id != Some(thread_id) {
@@ -1784,11 +1779,12 @@ impl Application for ConnectApplet {
                 // which may be 0 or 1 after a reboot. Use a heuristic instead: if we've
                 // loaded a full page, there are likely more messages available.
                 self.messages_loaded_count = self.messages.len() as u32;
-                self.messages_has_more = if total_count > 0 && (self.messages.len() as u64) < total_count {
-                    true
-                } else {
-                    self.messages.len() >= self.config.messages_per_page as usize
-                };
+                self.messages_has_more =
+                    if total_count > 0 && (self.messages.len() as u64) < total_count {
+                        true
+                    } else {
+                        self.messages.len() >= self.config.messages_per_page as usize
+                    };
 
                 // Scroll to bottom to show latest messages
                 if !self.messages.is_empty() {
@@ -1798,7 +1794,10 @@ impl Application for ConnectApplet {
                     );
                 }
             }
-            Message::ConversationLoadComplete { thread_id, total_count } => {
+            Message::ConversationLoadComplete {
+                thread_id,
+                total_count,
+            } => {
                 // Guard: Only process if still viewing this thread
                 if self.current_thread_id != Some(thread_id) {
                     tracing::debug!(
@@ -1824,11 +1823,12 @@ impl Application for ConnectApplet {
                 // not the phone's total. Use a heuristic: if we've loaded a full page
                 // worth of messages, there are likely more available.
                 self.messages_loaded_count = self.messages.len() as u32;
-                self.messages_has_more = if total_count > 0 && (self.messages.len() as u64) < total_count {
-                    true
-                } else {
-                    self.messages.len() >= self.config.messages_per_page as usize
-                };
+                self.messages_has_more =
+                    if total_count > 0 && (self.messages.len() as u64) < total_count {
+                        true
+                    } else {
+                        self.messages.len() >= self.config.messages_per_page as usize
+                    };
 
                 // Update last_seen_sms with the newest message timestamp
                 if let Some(newest) = self.messages.iter().map(|m| m.date).max() {
@@ -1898,8 +1898,11 @@ impl Application for ConnectApplet {
                             cosmic::Action::App,
                         );
                     } else {
-                        tracing::warn!("SendSms conditions not met: text_empty={}, sending={}",
-                            self.sms_compose_text.is_empty(), self.sms_sending);
+                        tracing::warn!(
+                            "SendSms conditions not met: text_empty={}, sending={}",
+                            self.sms_compose_text.is_empty(),
+                            self.sms_sending
+                        );
                     }
                 } else {
                     tracing::warn!("SendSms missing required state");
@@ -1973,8 +1976,11 @@ impl Application for ConnectApplet {
                     Err(err) => {
                         tracing::error!("SMS send error: {}", err);
                         self.sms_sending_body = None;
-                        return self
-                            .set_transient_status(format!("{}: {}", fl!("sms-failed"), err));
+                        return self.set_transient_status(format!(
+                            "{}: {}",
+                            fl!("sms-failed"),
+                            err
+                        ));
                     }
                 }
             }
@@ -2359,8 +2365,7 @@ impl Application for ConnectApplet {
                             let sender_name = match cached_sender_name {
                                 Some(name) => name,
                                 None => {
-                                    let contacts =
-                                        ContactLookup::load_for_device(&device_id).await;
+                                    let contacts = ContactLookup::load_for_device(&device_id).await;
                                     contacts.get_group_display_name(&addresses, 3)
                                 }
                             };
@@ -2706,9 +2711,18 @@ impl Application for ConnectApplet {
             {
                 let messages_per_page = self.config.messages_per_page;
                 subscriptions.push(Subscription::run_with(
-                    ("conversation_messages", thread_id, device_id.clone(), messages_per_page),
+                    (
+                        "conversation_messages",
+                        thread_id,
+                        device_id.clone(),
+                        messages_per_page,
+                    ),
                     |(_, thread_id, device_id, messages_per_page)| {
-                        conversation_message_subscription(*thread_id, device_id.clone(), *messages_per_page)
+                        conversation_message_subscription(
+                            *thread_id,
+                            device_id.clone(),
+                            *messages_per_page,
+                        )
                     },
                 ));
             }
