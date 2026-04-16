@@ -84,9 +84,9 @@ cosmic-ext-connected/
 │   ├── io.github.nwxnw.cosmic-ext-connected.desktop
 │   ├── io.github.nwxnw.cosmic-ext-connected.metainfo.xml
 │   └── icons/hicolor/scalable/apps/
-│       ├── io.github.nwxnw.cosmic-ext-connected.svg          # App icon (128x128, #BEBEBE fill)
-│       ├── cosmic-ext-connected-symbolic.svg                  # Panel: connected state
-│       └── cosmic-ext-connected-disconnected-symbolic.svg     # Panel: disconnected state
+│       ├── io.github.nwxnw.cosmic-ext-connected.svg                          # App icon (128x128, #BEBEBE fill)
+│       ├── io.github.nwxnw.cosmic-ext-connected-symbolic.svg                  # Panel: connected state
+│       └── io.github.nwxnw.cosmic-ext-connected-disconnected-symbolic.svg     # Panel: disconnected state
 │
 ├── io.github.nwxnw.cosmic-ext-connected.json  # Flatpak manifest
 │
@@ -130,8 +130,9 @@ fn is_charging(&self) -> zbus::Result<bool>;
 ### Icons
 - **Panel icons** use `fill="currentColor"` (symbolic) so COSMIC themes them automatically
 - **App icon** uses hardcoded `fill="#BEBEBE"` because COSMIC Settings does not theme non-symbolic app icons
-- Device icon everywhere is `"cosmic-ext-connected-symbolic"` (our custom mobile phone icon)
-- Panel connected state: `"cosmic-ext-connected-symbolic"`, disconnected: `"cosmic-ext-connected-disconnected-symbolic"`
+- **All icon filenames are prefixed with the app ID** (`io.github.nwxnw.cosmic-ext-connected*`) so Flatpak exports them to the host. Icons without the app-ID prefix are silently excluded from Flatpak export (non-allowed export filename), breaking icon rendering in COSMIC Settings for Flatpak installs.
+- Device icon everywhere is `"io.github.nwxnw.cosmic-ext-connected-symbolic"` (our custom mobile phone icon)
+- Panel connected state: `"io.github.nwxnw.cosmic-ext-connected-symbolic"`, disconnected: `"io.github.nwxnw.cosmic-ext-connected-disconnected-symbolic"`
 - Disconnected icon follows Pop convention: main element at `opacity="0.35"`, X indicator at full opacity
 
 ### UI Theming

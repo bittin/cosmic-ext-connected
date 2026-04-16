@@ -1,53 +1,57 @@
 # Justfile for cosmic-ext-connected
 # Install just: cargo install just
 
-# Installation paths
-prefix := '/usr'
-bindir := prefix / 'bin'
-sharedir := prefix / 'share'
-
 # Applet metadata
-applet_name := 'cosmic-ext-connected'
-app_id := 'io.github.nwxnw.cosmic-ext-connected'
-desktop_file := app_id + '.desktop'
-metainfo_file := app_id + '.metainfo.xml'
-icon_file := app_id + '.svg'
+name := 'cosmic-ext-connected'
+export APPID := 'io.github.nwxnw.cosmic-ext-connected'
+
+# Installation paths (overridable via env vars for Flatpak builds)
+rootdir := ''
+prefix := '/usr'
+base-dir := absolute_path(clean(rootdir / prefix))
+export INSTALL_DIR := base-dir / 'share'
+
+bin_dir := env_var_or_default("BIN_DIR", base-dir / 'bin')
+app_dir := env_var_or_default("APP_DIR", INSTALL_DIR / 'applications')
+metainfo_dir := env_var_or_default("METAINFO_DIR", INSTALL_DIR / 'metainfo')
+icon_dir := env_var_or_default("ICON_DIR", INSTALL_DIR / 'icons' / 'hicolor' / 'scalable' / 'apps')
 
 # Default recipe - show available commands
 default:
     @just --list
 
 # Build debug version
-build:
-    cargo build
+build *args:
+    cargo build {{args}}
 
 # Build release version
-build-release:
-    cargo build --release
+build-release *args:
+    cargo build --release {{args}}
 
 # Run the applet (for testing)
 run:
-    cargo run -p cosmic-ext-connected
+    cargo run -p {{name}}
 
 # Run in standalone window mode (for development)
 run-standalone:
-    cargo run -p cosmic-ext-connected -- --standalone
+    cargo run -p {{name}} -- --standalone
 
 # Run standalone with debug logging
 run-debug:
-    RUST_LOG=cosmic_ext_connected=debug cargo run -p cosmic-ext-connected -- --standalone
+    RUST_LOG=cosmic_ext_connected=debug cargo run -p {{name}} -- --standalone
 
 # Install pre-built applet to system (requires sudo)
 # Usage: cargo build --release && sudo just install
 install:
-    install -Dm755 target/release/{{applet_name}} {{bindir}}/{{applet_name}}
-    install -Dm644 data/{{desktop_file}} {{sharedir}}/applications/{{desktop_file}}
-    install -Dm644 data/{{metainfo_file}} {{sharedir}}/metainfo/{{metainfo_file}}
-    install -Dm644 data/icons/hicolor/scalable/apps/{{icon_file}} {{sharedir}}/icons/hicolor/scalable/apps/{{icon_file}}
-    install -Dm644 data/icons/hicolor/scalable/apps/cosmic-ext-connected-symbolic.svg {{sharedir}}/icons/hicolor/scalable/apps/cosmic-ext-connected-symbolic.svg
-    install -Dm644 data/icons/hicolor/scalable/apps/cosmic-ext-connected-disconnected-symbolic.svg {{sharedir}}/icons/hicolor/scalable/apps/cosmic-ext-connected-disconnected-symbolic.svg
-    @echo "Installed {{applet_name}} to {{bindir}}"
-    @echo "Installed {{desktop_file}} to {{sharedir}}/applications"
+    install -Dm0755 target/release/{{name}} {{bin_dir}}/{{name}}
+    install -Dm0755 data/{{APPID}}.sh {{bin_dir}}/{{name}}.sh
+    install -Dm0644 data/{{APPID}}.desktop {{app_dir}}/{{APPID}}.desktop
+    install -Dm0644 data/{{APPID}}.metainfo.xml {{metainfo_dir}}/{{APPID}}.metainfo.xml
+    install -Dm0644 data/icons/hicolor/scalable/apps/{{APPID}}.svg {{icon_dir}}/{{APPID}}.svg
+    install -Dm0644 data/icons/hicolor/scalable/apps/{{APPID}}-symbolic.svg {{icon_dir}}/{{APPID}}-symbolic.svg
+    install -Dm0644 data/icons/hicolor/scalable/apps/{{APPID}}-disconnected-symbolic.svg {{icon_dir}}/{{APPID}}-disconnected-symbolic.svg
+    @echo "Installed {{name}} to {{bin_dir}}"
+    @echo "Installed {{APPID}}.desktop to {{app_dir}}"
     @echo ""
     @echo "To add the applet to your panel:"
     @echo "  1. Open Settings > Desktop > Panel"
@@ -57,13 +61,14 @@ install:
 
 # Uninstall the applet from the system (requires sudo)
 uninstall:
-    rm -f {{bindir}}/{{applet_name}}
-    rm -f {{sharedir}}/applications/{{desktop_file}}
-    rm -f {{sharedir}}/metainfo/{{metainfo_file}}
-    rm -f {{sharedir}}/icons/hicolor/scalable/apps/{{icon_file}}
-    rm -f {{sharedir}}/icons/hicolor/scalable/apps/cosmic-ext-connected-symbolic.svg
-    rm -f {{sharedir}}/icons/hicolor/scalable/apps/cosmic-ext-connected-disconnected-symbolic.svg
-    @echo "Uninstalled {{applet_name}}"
+    rm -f {{bin_dir}}/{{name}}
+    rm -f {{bin_dir}}/{{name}}.sh
+    rm -f {{app_dir}}/{{APPID}}.desktop
+    rm -f {{metainfo_dir}}/{{APPID}}.metainfo.xml
+    rm -f {{icon_dir}}/{{APPID}}.svg
+    rm -f {{icon_dir}}/{{APPID}}-symbolic.svg
+    rm -f {{icon_dir}}/{{APPID}}-disconnected-symbolic.svg
+    @echo "Uninstalled {{name}}"
     @echo "Restart cosmic-panel to remove from panel: killall cosmic-panel"
 
 # Run tests

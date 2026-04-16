@@ -21,7 +21,7 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
             .class(cosmic::theme::Button::Link)
             .on_press(Message::BackToList);
 
-        let device_icon = icon::from_name("cosmic-ext-connected-symbolic")
+        let device_icon = icon::from_name("io.github.nwxnw.cosmic-ext-connected-symbolic")
             .size(48)
             .icon()
             .class(theme::Svg::custom(|theme| svg::Style {

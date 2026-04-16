@@ -43,9 +43,42 @@
     <keyword>SMS</keyword>
     <keyword>notifications</keyword>
   </keywords>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/nwxnw/cosmic-ext-connected/main/screenshots/connected-applet.png</image>
+      <caption>Connected applet showing device page</caption>
+    </screenshot>
+  </screenshots>
   <content_rating type="oars-1.1" />
   <releases>
-    <release version="0.1.0" date="2026-02-07">
+    <release version="0.3.0" date="2026-04-14">
+      <description>
+        <p>Native file chooser, SMS reliability improvements, and Flatpak icon fix.</p>
+        <ul>
+          <li>Replaced rfd/gtk3 file dialog with libcosmic's native xdg-portal file chooser</li>
+          <li>Fixed SMS message handling with optimistic send and body-based reconciliation</li>
+          <li>Converted subscriptions to long-lived to fix premature termination</li>
+          <li>Fixed missing applet icon in COSMIC Panel settings for Flatpak installs</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.2.1" date="2026-04-12">
+      <description>
+        <p>Compatibility update for latest libcosmic.</p>
+      </description>
+    </release>
+    <release version="0.2.0" date="2026-04-03">
+      <description>
+        <p>MMS attachments, group messaging, and bug fixes.</p>
+        <ul>
+          <li>MMS attachment viewing with thumbnails in message bubbles</li>
+          <li>Multi-recipient support for new message compose</li>
+          <li>Fixed empty conversation list on cold start</li>
+          <li>Fixed APP_ID mismatch preventing applet from appearing on panel</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.0" date="2026-02-10">
       <description>
         <p>Initial release.</p>
       </description>

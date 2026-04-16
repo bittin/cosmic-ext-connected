@@ -1,8 +1,9 @@
 [Desktop Entry]
 Name=Connected
+Comment=Phone connectivity via KDE Connect
 Type=Application
 Exec=cosmic-ext-connected
-Icon=io.github.nwxnw.cosmic-ext-connected
+Icon=io.github.nwxnw.cosmic-ext-connected-symbolic
 Terminal=false
 Categories=COSMIC;
 NoDisplay=true

@@ -1,12 +1,12 @@
 {
   "id": "io.github.nwxnw.cosmic-ext-connected",
   "runtime": "org.freedesktop.Platform",
-  "runtime-version": "24.08",
+  "runtime-version": "25.08",
   "sdk": "org.freedesktop.Sdk",
   "sdk-extensions": ["org.freedesktop.Sdk.Extension.rust-stable"],
   "base": "com.system76.Cosmic.BaseApp",
   "base-version": "stable",
-  "command": "cosmic-ext-connected",
+  "command": "cosmic-ext-connected.sh",
   "finish-args": [
     "--socket=wayland",
     "--socket=session-bus",
@@ -21,7 +21,11 @@
   "build-options": {
     "append-path": "/usr/lib/sdk/rust-stable/bin",
     "env": {
-      "CARGO_HOME": "/run/build/cosmic-ext-connected/cargo"
+      "CARGO_HOME": "/run/build/cosmic-ext-connected/cargo",
+      "BIN_DIR": "/app/bin",
+      "APP_DIR": "/app/share/applications",
+      "METAINFO_DIR": "/app/share/metainfo",
+      "ICON_DIR": "/app/share/icons/hicolor/scalable/apps"
     }
   },
   "modules": [
@@ -29,21 +33,29 @@
       "name": "cosmic-ext-connected",
       "buildsystem": "simple",
       "build-commands": [
-        "cargo --offline fetch --manifest-path Cargo.toml --verbose",
-        "cargo --offline build --release --verbose",
-        "install -Dm755 ./target/release/cosmic-ext-connected -t /app/bin/",
-        "install -Dm644 ./data/io.github.nwxnw.cosmic-ext-connected.desktop -t /app/share/applications/",
-        "install -Dm644 ./data/io.github.nwxnw.cosmic-ext-connected.metainfo.xml -t /app/share/metainfo/",
-        "install -Dm644 ./data/icons/hicolor/scalable/apps/io.github.nwxnw.cosmic-ext-connected.svg -t /app/share/icons/hicolor/scalable/apps/",
-        "install -Dm644 ./data/icons/hicolor/scalable/apps/cosmic-ext-connected-symbolic.svg -t /app/share/icons/hicolor/scalable/apps/",
-        "install -Dm644 ./data/icons/hicolor/scalable/apps/cosmic-ext-connected-disconnected-symbolic.svg -t /app/share/icons/hicolor/scalable/apps/"
+        "just build-release --verbose --offline",
+        "just install"
       ],
       "sources": [
         {
           "type": "dir",
-          "path": "./"
+          "path": "."
         },
-        "cargo-sources.json"
+        {
+          "type": "dir",
+          "path": "vendor",
+          "dest": "vendor"
+        },
+        {
+          "type": "file",
+          "path": ".cargo/config.toml",
+          "dest": ".cargo",
+          "dest-filename": "config.toml"
+        },
+        {
+          "type": "file",
+          "path": "justfile"
+        }
       ]
     }
   ]

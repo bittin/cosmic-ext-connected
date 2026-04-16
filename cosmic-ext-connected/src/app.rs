@@ -2509,9 +2509,9 @@ impl Application for ConnectApplet {
     fn view(&self) -> Element<'_, Self::Message> {
         // Panel button with icon
         let icon_name = if self.devices.iter().any(|d| d.is_reachable && d.is_paired) {
-            "cosmic-ext-connected-symbolic"
+            "io.github.nwxnw.cosmic-ext-connected-symbolic"
         } else {
-            "cosmic-ext-connected-disconnected-symbolic"
+            "io.github.nwxnw.cosmic-ext-connected-disconnected-symbolic"
         };
 
         self.core

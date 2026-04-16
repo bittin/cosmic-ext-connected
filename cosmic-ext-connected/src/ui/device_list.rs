@@ -112,7 +112,7 @@ fn device_row<'a>(device: &'a DeviceInfo, config: &'a Config) -> Element<'a, Mes
     };
 
     let mut row_content = row![
-        icon::from_name("cosmic-ext-connected-symbolic").size(24),
+        icon::from_name("io.github.nwxnw.cosmic-ext-connected-symbolic").size(24),
         column![text::body(device.name.clone()), status_widget,].spacing(2),
     ]
     .spacing(sp.space_xs)
