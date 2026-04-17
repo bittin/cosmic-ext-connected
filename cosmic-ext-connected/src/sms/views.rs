@@ -196,116 +196,128 @@ pub fn view_conversation_list(params: ConversationListParams<'_>) -> Element<'_,
             .push(new_msg_btn),
     );
 
-    let content: Element<Message> =
-        if is_loading_conversations(params.loading_state) && params.conversations.is_empty() {
-            widget::container(
-                column![text::body(conversation_loading_text(params.loading_state)),]
+    let content: Element<Message> = if is_loading_conversations(params.loading_state)
+        && params.conversations.is_empty()
+    {
+        widget::container(
+            column![text::body(conversation_loading_text(params.loading_state)),]
+                .align_x(Alignment::Center),
+        )
+        .center(Length::Fill)
+        .into()
+    } else if params.conversations.is_empty() {
+        widget::container(
+            column![
+                widget::icon::from_name("mail-message-new-symbolic").size(48),
+                text::heading(fl!("no-conversations")),
+                text::caption(fl!("start-new-message")),
+            ]
+            .spacing(sp.space_xs)
+            .align_x(Alignment::Center),
+        )
+        .center(Length::Fill)
+        .into()
+    } else {
+        // Build conversation list (limited to conversations_displayed)
+        let mut conv_column = column![].spacing(sp.space_xxxs);
+        for conv in params
+            .conversations
+            .iter()
+            .take(params.conversations_displayed)
+        {
+            let display_name = params.contacts.get_group_display_name(&conv.addresses, 3);
+            let date_str = format_timestamp(conv.timestamp);
+
+            // Build snippet: show attachment indicator if needed
+            let snippet_element: Element<Message> =
+                if conv.has_attachments && conv.last_message.is_empty() {
+                    // MMS with only attachments (no text body)
+                    row![
+                        widget::icon::from_name("mail-attachment-symbolic").size(14),
+                        text::caption(fl!("attachment"))
+                            .wrapping(cosmic::iced::widget::text::Wrapping::None),
+                    ]
+                    .spacing(sp.space_xxxs)
+                    .align_y(Alignment::Center)
+                    .into()
+                } else if conv.has_attachments {
+                    // MMS with both text and attachments
+                    let snippet = conv.last_message.chars().take(50).collect::<String>();
+                    row![
+                        widget::icon::from_name("mail-attachment-symbolic").size(14),
+                        text::caption(snippet).wrapping(cosmic::iced::widget::text::Wrapping::None),
+                    ]
+                    .spacing(sp.space_xxxs)
+                    .align_y(Alignment::Center)
+                    .into()
+                } else {
+                    let snippet = conv.last_message.chars().take(50).collect::<String>();
+                    text::caption(snippet)
+                        .wrapping(cosmic::iced::widget::text::Wrapping::None)
+                        .into()
+                };
+
+            let conv_row = applet::menu_button(
+                row![
+                    widget::container(
+                        column![
+                            text::body(display_name)
+                                .wrapping(cosmic::iced::widget::text::Wrapping::None),
+                            snippet_element,
+                        ]
+                        .spacing(2),
+                    )
+                    .width(Length::Fill)
+                    .clip(true),
+                    text::caption(date_str),
+                    widget::icon::from_name("go-next-symbolic").size(16),
+                ]
+                .spacing(sp.space_xxs)
+                .align_y(Alignment::Center),
+            )
+            .on_press(Message::OpenConversation(conv.thread_id));
+
+            conv_column = conv_column.push(conv_row);
+        }
+
+        // Add "Load More" button if there are more conversations
+        if params.conversations_displayed < params.conversations.len() {
+            let load_more_row = row![
+                widget::icon::from_name("go-down-symbolic").size(16),
+                text::body(fl!("load-more-conversations")),
+            ]
+            .spacing(sp.space_xxs)
+            .align_y(Alignment::Center);
+
+            let load_more_button = applet::menu_button(
+                widget::container(load_more_row)
+                    .width(Length::Fill)
                     .align_x(Alignment::Center),
             )
-            .center(Length::Fill)
-            .into()
-        } else if params.conversations.is_empty() {
-            widget::container(
-                column![
-                    widget::icon::from_name("mail-message-new-symbolic").size(48),
-                    text::heading(fl!("no-conversations")),
-                    text::caption(fl!("start-new-message")),
-                ]
-                .spacing(sp.space_xs)
-                .align_x(Alignment::Center),
-            )
-            .center(Length::Fill)
-            .into()
-        } else {
-            // Build conversation list (limited to conversations_displayed)
-            let mut conv_column = column![].spacing(sp.space_xxxs);
-            for conv in params
-                .conversations
-                .iter()
-                .take(params.conversations_displayed)
-            {
-                let display_name = params.contacts.get_group_display_name(&conv.addresses, 3);
-                let date_str = format_timestamp(conv.timestamp);
+            .on_press(Message::LoadMoreConversations);
 
-                // Build snippet: show attachment indicator if needed
-                let snippet_element: Element<Message> =
-                    if conv.has_attachments && conv.last_message.is_empty() {
-                        // MMS with only attachments (no text body)
-                        row![
-                            widget::icon::from_name("mail-attachment-symbolic").size(14),
-                            text::caption(fl!("attachment")),
-                        ]
-                        .spacing(sp.space_xxxs)
-                        .align_y(Alignment::Center)
-                        .into()
-                    } else if conv.has_attachments {
-                        // MMS with both text and attachments
-                        let snippet = conv.last_message.chars().take(50).collect::<String>();
-                        row![
-                            widget::icon::from_name("mail-attachment-symbolic").size(14),
-                            text::caption(snippet),
-                        ]
-                        .spacing(sp.space_xxxs)
-                        .align_y(Alignment::Center)
-                        .into()
-                    } else {
-                        let snippet = conv.last_message.chars().take(50).collect::<String>();
-                        text::caption(snippet).into()
-                    };
+            conv_column = conv_column.push(load_more_button);
+        }
 
-                let conv_row = applet::menu_button(
+        // Show sync progress indicator at bottom when still syncing
+        if params.sync_active {
+            conv_column = conv_column.push(
+                applet::padded_control(
                     row![
-                        column![text::body(display_name), snippet_element,].spacing(2),
-                        widget::space::horizontal(),
-                        text::caption(date_str),
-                        widget::icon::from_name("go-next-symbolic").size(16),
+                        widget::icon::from_name("emblem-synchronizing-symbolic").size(16),
+                        text::caption(fl!("syncing-conversations")),
                     ]
                     .spacing(sp.space_xxs)
                     .align_y(Alignment::Center),
                 )
-                .on_press(Message::OpenConversation(conv.thread_id));
+                .align_x(Alignment::Center),
+            );
+        }
 
-                conv_column = conv_column.push(conv_row);
-            }
-
-            // Add "Load More" button if there are more conversations
-            if params.conversations_displayed < params.conversations.len() {
-                let load_more_row = row![
-                    widget::icon::from_name("go-down-symbolic").size(16),
-                    text::body(fl!("load-more-conversations")),
-                ]
-                .spacing(sp.space_xxs)
-                .align_y(Alignment::Center);
-
-                let load_more_button = applet::menu_button(
-                    widget::container(load_more_row)
-                        .width(Length::Fill)
-                        .align_x(Alignment::Center),
-                )
-                .on_press(Message::LoadMoreConversations);
-
-                conv_column = conv_column.push(load_more_button);
-            }
-
-            // Show sync progress indicator at bottom when still syncing
-            if params.sync_active {
-                conv_column = conv_column.push(
-                    applet::padded_control(
-                        row![
-                            widget::icon::from_name("emblem-synchronizing-symbolic").size(16),
-                            text::caption(fl!("syncing-conversations")),
-                        ]
-                        .spacing(sp.space_xxs)
-                        .align_y(Alignment::Center),
-                    )
-                    .align_x(Alignment::Center),
-                );
-            }
-
-            widget::scrollable(conv_column.padding([0, sp.space_xxs as u16]))
-                .width(Length::Fill)
-                .into()
-        };
+        widget::scrollable(conv_column.padding([0, sp.space_xxs as u16]))
+            .width(Length::Fill)
+            .into()
+    };
 
     column![header, content,]
         .spacing(sp.space_xxs)

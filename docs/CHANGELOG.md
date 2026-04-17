@@ -15,6 +15,7 @@ All notable changes to Connected will be documented in this file.
 - Conversation list and message thread subscriptions converted to long-lived (fixes premature termination during bursty phone signals)
 - Cold start false "no conversations" display (spinner shown until data arrives)
 - Missing applet icon in COSMIC Panel settings for Flatpak installs
+- Conversation list: long message previews no longer push the date and chevron off the right edge
 
 ## [0.2.1] - 2026-04-12
 
