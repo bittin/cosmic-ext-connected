@@ -3,6 +3,9 @@
   <id>io.github.nwxnw.cosmic-ext-connected</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0</project_license>
+  <developer id="io.github.nwxnw">
+    <name>nwxnw</name>
+  </developer>
   <name>Connected</name>
   <summary>Phone connectivity applet for the COSMIC desktop</summary>
   <description>
@@ -34,7 +37,8 @@
     <control>touch</control>
   </supports>
   <categories>
-    <category>COSMIC</category>
+    <category>Utility</category>
+    <category>Network</category>
   </categories>
   <keywords>
     <keyword>COSMIC</keyword>
@@ -53,8 +57,9 @@
   <releases>
     <release version="0.3.0" date="2026-04-14">
       <description>
-        <p>Native file chooser, SMS reliability improvements, and Flatpak icon fix.</p>
+        <p>Native file chooser, SMS reliability improvements, Flatpak icon fix, and conversation list bootstrap hardening.</p>
         <ul>
+          <li>Fixed conversation list bootstrap to handle cold-start, quiet-window settling, and late-arriving daemon cache data</li>
           <li>Replaced rfd/gtk3 file dialog with libcosmic's native xdg-portal file chooser</li>
           <li>Fixed SMS message handling with optimistic send and body-based reconciliation</li>
           <li>Converted subscriptions to long-lived to fix premature termination</li>
