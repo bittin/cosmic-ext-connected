@@ -1,324 +1,152 @@
-# SMS Implementation
+# SMS Implementation Notes
 
-Details on SMS messaging functionality in Connected.
+Current SMS behavior in Connected, plus known limitations and possible follow-up work.
 
-## Signal-Based Data Fetching
+## Current Status
 
-Both conversation lists and individual messages are fetched using D-Bus signals rather than polling. This provides reliable loading regardless of phone response time.
+Implemented:
 
-### Conversation List Loading (Subscription-Based)
+- Conversation-list bootstrap is cache-first and primarily signal-driven.
+- Bootstrap re-reads `activeConversations()` during initial sync, settles after a quiet window, and retries once on suspiciously small cold-start results.
+- Warm starts preserve cached timeout semantics instead of fabricating activity.
+- Conversation threads use a long-lived subscription with deferred initial scroll, pagination, and optimistic reply reconciliation.
+- Device selection can prefetch cached conversation heads before the SMS view opens.
 
-Conversation lists use a **subscription-based** approach for incremental display, mirroring the pattern used by KDE Connect SMS app:
+Possible next steps:
 
-```
-OpenSmsView → Set state, activate subscription
-                        ↓
-         Subscription sets up D-Bus match rules
-                        ↓
-         Load cached conversations via activeConversations()
-                        ↓
-         Emit ConversationReceived for each cached conversation
-                        ↓
-         Fire requestAllConversationThreads() D-Bus call
-                        ↓
-         conversationCreated/Updated signals → ConversationReceived messages
-                        ↓
-         Phone deadline fires → ConversationSyncComplete (dismiss spinner)
-                        ↓
-         Subscription continues listening with 30s heartbeat
-                        ↓
-CloseSmsView → Flag cleared → iced drops subscription
-```
+- Move SMS state out of `app.rs` and per-view subscriptions into a shared SMS session/store.
+- Reduce the differences between conversation-list and thread-loading synchronization models.
+- Keep reviewing thread correctness around deduplication, pagination heuristics, notification interaction, scroll preservation, and reply/cache-priming assumptions.
+- Keep bootstrap logging focused on cache size, signal activity, retry use, and final settled counts.
 
-**Key implementation details:**
+## Architecture Overview
 
-1. `conversation_list_subscription` in `sms/conversation_subscription.rs` handles the entire flow
-2. Uses a state machine with three states: `Init`, `EmittingCached`, `Listening`
-3. Match rules are set up BEFORE firing the D-Bus request (prevents race conditions)
-4. Cached conversations emitted one-at-a-time for immediate UI updates
-5. New signals processed incrementally - each conversation appears as it arrives
-6. "Syncing conversations..." indicator shown until phone deadline fires (8s cold, 3s warm)
-7. Subscription runs until the SMS view is closed — no activity timeout or hard timeout
+### Conversation List Loading
 
-```rust
-// State machine for incremental loading
-enum ConversationListState {
-    Init { device_id: String },
-    EmittingCached { pending_conversations: Vec<ConversationSummary>, ... },
-    Listening { stream: MessageStream, ... },
-}
-```
+Conversation-list loading is cache-first and long-lived:
 
-```rust
-// In app.rs - incremental display
-Message::ConversationReceived { device_id, conversation } => {
-    // Update or insert by thread_id
-    if let Some(existing) = self.conversations.iter_mut()
-        .find(|c| c.thread_id == conversation.thread_id)
-    {
-        if conversation.timestamp > existing.timestamp {
-            *existing = conversation;
-        }
-    } else {
-        self.conversations.push(conversation);
-    }
-    // Re-sort by timestamp (newest first)
-    self.conversations.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-}
-```
+1. Opening the SMS view starts `conversation_list_subscription`.
+2. The subscription installs D-Bus match rules before firing bootstrap requests.
+3. Cached conversations from `activeConversations()` are emitted immediately.
+4. Bootstrap requests plus follow-up cache polls merge newer data into the list.
+5. A quiet window or bootstrap deadline dismisses the sync indicator.
+6. The subscription remains alive while the SMS view is open.
 
-**Benefits over batch loading:**
-- Conversations appear immediately as they arrive (no waiting for timeout)
-- Visual feedback during sync ("Syncing conversations...")
-- Mirrors KDE Connect SMS app's proven approach
+Important details:
 
-### Message Thread Loading (Two-Phase Subscription)
+- Warm starts use cached rows immediately and a shorter bootstrap window.
+- Cold starts use a longer wait and one bounded retry.
+- The flow is primarily signal-driven, but bootstrap also re-reads daemon cache to catch late-arriving data.
 
-Individual message threads use a **two-phase subscription** approach that handles both the local persistent store and phone response data:
+### Message Thread Loading
 
-```
-OpenConversation → Set state, activate subscription
-                            ↓
-         Subscription sets up D-Bus match rules
-                            ↓
-         Subscription fires TWO requestConversation() D-Bus calls
-         (SMS plugin for cache priming, Conversations for UI signals)
-                            ↓
-     ┌── Phase 1: Local store read ──────────────────────────────┐
-     │  conversationUpdated signals → ConversationMessageReceived │
-     │  conversationLoaded signal   → ConversationStoreLoaded     │
-     │  (scroll to bottom, start phone deadline)                  │
-     └────────────────────────────────────────────────────────────┘
-                            ↓
-     ┌── Phase 2: Phone response window (8s phone deadline) ─────┐
-     │  conversationUpdated signals → ConversationMessageReceived │
-     │  Phone deadline fires        → ConversationLoadComplete    │
-     └────────────────────────────────────────────────────────────┘
-                            ↓
-     ┌── Phase 3: Long-lived listening (30s heartbeat) ──────────┐
-     │  Catches new messages, sent message echoes, etc.           │
-     │  Continues until conversation is closed                    │
-     └────────────────────────────────────────────────────────────┘
-                            ↓
-CloseConversation → Flag cleared → iced drops subscription
-```
+Thread loading uses a long-lived subscription with distinct startup phases:
 
-**Key implementation details:**
+1. Opening a thread starts `conversation_message_subscription`.
+2. Match rules are installed before requests are fired.
+3. Two `requestConversation()` calls are made:
+   - SMS plugin request for daemon cache priming
+   - Conversations request for per-message UI signals
+4. The local persistent-store phase ends at `conversationLoaded`.
+5. A phone-response window stays open after local-store completion to catch delayed phone data.
+6. The subscription then continues listening for new incoming messages and sent-message echoes until the thread closes.
 
-1. `conversation_message_subscription` in `subscriptions.rs` handles the entire flow
-2. Uses a state machine: `Init` → `Listening` (three phases)
-3. Match rules are set up BEFORE firing the D-Bus request (prevents race conditions)
-4. Messages arrive via `ConversationMessageReceived` and are inserted sorted by date
-5. Scroll is deferred until `ConversationStoreLoaded` (not per-message) to prevent jarring jumps
-6. `phone_deadline` persists in the state struct across `unfold` yields
-7. Subscription runs until the conversation is closed — no activity timeout
-8. `initial_load_complete` flag gates scroll prefetch (set when `ConversationLoadComplete` fires)
+Important details:
 
-**Why two initial phases?** The `conversationLoaded` signal fires when the local persistent store read completes. After a reboot, this store may be empty/sparse (0-1 messages), while the phone's response (via SMS plugin → `addMessages()`) delivers the actual messages asynchronously. Phase 2 catches these late-arriving messages.
+- Initial scroll is deferred until local-store completion rather than per-message.
+- `conversationLoaded` reflects local-store count, not authoritative phone total.
+- `initial_load_complete` gates scroll-based loading of older messages.
 
-**Why Phase 3?** The subscription continues listening after initial load so that:
-- Sent message echoes from the phone are caught for optimistic message reconciliation
-- New incoming messages appear in real time while viewing the thread
-- No subscription restart is needed after sending a reply
+### Older Message Loading
 
-**Timeout constants** (in `constants.rs`):
-- `MESSAGE_SUBSCRIPTION_TIMEOUT_SECS = 20` — hard timeout for Phase 1 only (local store safety net)
-- `PHONE_RESPONSE_TIMEOUT_MS = 8000` — phone deadline in Phase 2 (signals initial load done)
+Older messages are loaded automatically when the user scrolls near the top of the thread.
 
-```rust
-// State machine in subscriptions.rs
-enum ConversationMessageState {
-    Init { thread_id, device_id, messages_per_page },
-    Listening {
-        conn, stream, thread_id, device_id,
-        local_store_done,      // phase flag
-        total_message_count,   // from conversationLoaded (local store count)
-        phone_deadline,        // signals initial load done when it fires
-        load_complete_emitted, // true after ConversationLoadComplete sent
-    },
-    Done,
-}
-```
+- Scroll position and content height are captured before the fetch.
+- Older messages are prepended when they arrive.
+- Scroll offset is adjusted so the user stays anchored near the same visible messages.
 
-```rust
-// In app.rs - incremental display with deferred scroll
-Message::ConversationMessageReceived { thread_id, message } => {
-    // Insert sorted by date, deduplicate via known_message_ids
-    // Also reconciles optimistic sent messages via body matching
-    self.messages.insert(insert_pos, message);
-}
+## Sending Behavior
 
-Message::ConversationStoreLoaded { thread_id, total_count } => {
-    // Local store done — scroll to bottom, update pagination, keep listening
-}
+### Replies
 
-Message::ConversationLoadComplete { thread_id, total_count } => {
-    // Initial load done — clear sync indicator, set initial_load_complete = true
-    // Subscription keeps running for new messages and sent echoes
-}
-```
+Replies use `replyToConversation(threadId, message, attachments)` on the Conversations D-Bus interface. This preserves thread context, including group conversations, but depends on the daemon's in-memory `m_conversations` cache being primed first.
 
-**Pagination heuristic:** The `total_count` from `conversationLoaded` reflects the **local store count**, not the phone's total message count. After a reboot, this can be 0-1 even for conversations with hundreds of messages. The pagination check uses `messages.len() >= messages_per_page` as a fallback heuristic — if a full page was loaded, assume more exist.
+On success:
 
-### Scroll-Based Lazy Loading (Older Messages)
+- the conversation preview updates immediately with the latest body and timestamp
+- an optimistic sent bubble is inserted into the open thread
+- the long-lived message subscription reconciles that optimistic entry when the phone echoes back the real sent message
 
-When viewing a conversation, older messages load automatically as the user scrolls up:
+### New Messages
 
-```
-User scrolls near top (< 100px) → MessageThreadScrolled
-                                          ↓
-                    Store scroll position for later adjustment
-                                          ↓
-                    fetch_older_messages_async(offset, count)
-                                          ↓
-                    OlderMessagesLoaded → Prepend messages
-                                          ↓
-                    Calculate new scroll position → snap_to()
-```
+New-message compose uses `sendWithoutConversation(addresses, message, attachments)` with explicit recipients. On success, the compose flow returns to the conversation list and keeps the conversation-list subscription active so the phone can sync back the resulting thread.
 
-**Key implementation details:**
+### Cache Priming
 
-1. `MessageThreadScrolled` in `app.rs` triggers when user scrolls within 100px of top
-2. Scroll offset and content height stored before loading (for position preservation)
-3. `fetch_older_messages_async` requests messages with pagination offset
-4. When messages arrive, they're prepended and scroll position is adjusted
+Thread loading fires two requests because they serve different purposes:
 
-```rust
-// In app.rs - scroll-based loading trigger
-Message::MessageThreadScrolled(viewport) => {
-    const PREFETCH_THRESHOLD_PX: f32 = 100.0;
-    let scroll_offset = viewport.absolute_offset().y;
+- the SMS plugin request populates the daemon's in-memory `m_conversations` cache
+- the Conversations request emits the per-message signals used by the UI
 
-    if scroll_offset < PREFETCH_THRESHOLD_PX
-        && self.messages_has_more
-        && !self.is_loading_more_messages()
-    {
-        // Store scroll state for position preservation
-        self.scroll_offset_before_load = Some(scroll_offset);
-        self.content_height_before_load = Some(viewport.content_bounds().height);
+Reply sending depends on the first; thread rendering depends on the second.
 
-        // Trigger async load
-        return Task::perform(fetch_older_messages_async(...), ...);
-    }
-}
-```
+## Loading and Caching
 
-**Scroll position preservation:** When older messages are prepended, the scroll position is adjusted so the user stays at the same messages they were viewing:
+Loading state is tracked with `SmsLoadingState`:
 
-```rust
-// In OlderMessagesLoaded handler
-let prepended_height = prepended_count as f32 * ESTIMATED_MSG_HEIGHT;
-let new_content_height = old_height + prepended_height;
-let new_offset = old_offset + prepended_height;
-let relative_y = (new_offset / new_content_height).clamp(0.0, 1.0);
+- `Idle`
+- `LoadingConversations(Connecting|Requesting)`
+- `LoadingMessages(Connecting|Requesting)`
+- `LoadingMoreMessages`
 
-return scrollable::snap_to(
-    widget::Id::new("message-thread"),
-    scrollable::RelativeOffset { x: 0.0, y: relative_y },
-);
-```
+Caching behavior:
 
-**Loading indicator:** A subtle "Loading..." indicator appears at the top while fetching, but no manual button is required - loading is entirely scroll-driven.
+- Re-opening SMS for the same device reuses in-memory conversation data and refreshes in the background.
+- Switching devices clears device-specific SMS state as needed.
+- Contacts are loaded per device from KDE Connect's synced vCard directory and reused for same-device reopens.
 
-## Loading States
+## Known Constraints
 
-The applet uses a phase-based enum to track SMS loading progress:
+- `conversationLoaded` reports the local persistent-store count, not the phone's authoritative total.
+- Reply sending still depends on daemon cache priming before `replyToConversation` can work reliably.
+- Group-message behavior remains subject to KDE Connect limitations documented in `docs/KNOWN_ISSUES.md`.
+- Notification correctness depends on careful `last_seen_sms` handling when opening threads and merging incoming data.
 
-```rust
-pub enum SmsLoadingState {
-    Idle,
-    LoadingConversations(LoadingPhase),
-    LoadingMessages(LoadingPhase),
-    LoadingMoreMessages,
-}
+## Reference
 
-pub enum LoadingPhase {
-    Connecting,  // Setting up D-Bus connection
-    Requesting,  // Request sent, waiting for response
-}
-```
+### Key Symbols
 
-**Phase transitions:**
-1. `Idle` → `LoadingConversations(Connecting)` - Opening SMS view without cache
-2. `LoadingConversations(Connecting)` → `LoadingConversations(Requesting)` - D-Bus ready
-3. `LoadingConversations(Requesting)` → `Idle` - Data received
-4. `Idle` → `LoadingConversations(Requesting)` - Opening with cache (skip Connecting)
-5. `Idle` → `LoadingMoreMessages` - User scrolls near top of message thread
-6. `LoadingMoreMessages` → `Idle` - Older messages received and prepended
+Messages (see `app.rs`):
 
-**Translation strings:**
-```ftl
-loading-connecting = Connecting...
-loading-requesting = Fetching from phone...
-```
+- `ConversationReceived` — cached or newly discovered conversation summary
+- `ConversationSyncStarted` / `ConversationSyncComplete` — spinner lifecycle for the list
+- `ConversationMessageReceived` — individual message during thread load or live updates
+- `ConversationStoreLoaded` — local persistent-store phase finished (triggers initial scroll)
+- `ConversationLoadComplete` — phone-response window elapsed (sets `initial_load_complete`)
 
-## Conversation List Caching
+Timeout constants (see `constants.rs`):
 
-Cached in memory to provide instant display when returning to SMS view.
+- `CONVERSATION_LIST_PHONE_WAIT_MS` — cold-start bootstrap ceiling
+- `CONVERSATION_TIMEOUT_CACHED_SECS` — warm-start bootstrap window
+- `CONVERSATION_LIST_QUIET_MS` — quiet-window settle after bootstrap activity
+- `CONVERSATION_LIST_CACHE_POLL_MS` — cache re-read interval during bootstrap
+- `CONVERSATION_LIST_RETRY_THRESHOLD` / `CONVERSATION_LIST_RETRY_WAIT_MS` — cold-start retry gate and window
+- `PHONE_RESPONSE_TIMEOUT_MS` — thread phone-response window after `conversationLoaded`
+- `MESSAGE_SUBSCRIPTION_TIMEOUT_SECS` — Phase 1 local-store safety-net timeout
 
-**Behavior:**
-- Navigating back preserves conversations in memory
-- Re-opening SMS for **same device** shows cache immediately + background refresh
-- Switching to **different device** clears cache and loads fresh
+D-Bus surface:
 
-```rust
-// OpenSmsView checks for cached data
-let same_device = self.sms_device_id.as_ref() == Some(&device_id);
-let has_cache = same_device && !self.conversations.is_empty();
+- Device base path: `/modules/kdeconnect/devices/{id}`
+- Conversations interface: `org.kde.kdeconnect.device.conversations` (signals: `conversationCreated`, `conversationUpdated`, `conversationLoaded`)
+- SMS plugin path: `/modules/kdeconnect/devices/{id}/sms` (`org.kde.kdeconnect.device.sms`) — used for cache priming via `requestConversation` / `requestAllConversations`
 
-// CloseSmsView preserves cache
-// Keep: sms_device_id, conversations, contacts
-// Clear: messages, current_thread_id, sms_compose_text
-```
+### Message Types
 
-**Send flow:** Both replies and new messages use `sendWithoutConversation` (Conversations D-Bus interface) with explicit addresses. This avoids `replyToConversation` which silently fails when the daemon's in-memory `m_conversations` cache is not populated (see Cache Priming below). On success, the conversation list preview updates immediately (last_message + timestamp), but no fake message is inserted into the thread. A delayed refresh (~2s) fetches the real sent message from the phone.
+- Message types: `1 = inbox`, `2 = sent`, `3 = draft`, `4 = outbox`, `5 = failed`, `6 = queued`
+- Message fields relied on by the app: body, addresses, date, type, read, thread ID, UID, sub ID, attachments
 
-**Cache priming:** When loading a conversation, two `requestConversation` calls are fired in sequence: (1) the SMS plugin's version (on `/devices/{id}/sms`) sends a network packet to the phone — the response flows through `addMessages()` which populates the daemon's in-memory `m_conversations` cache; (2) the Conversations interface's version reads from a local persistent store and emits per-message `conversationUpdated` signals for the UI. Both are needed because `replyToConversation` looks up addresses from `m_conversations` (only populated by the SMS plugin path), while the UI needs per-message signals (only provided by the Conversations interface path).
+## Related Docs
 
-```rust
-// Conversation list preview updates immediately
-if let Some(conv) = self.conversations.iter_mut().find(|c| c.thread_id == thread_id) {
-    conv.last_message = sent_body;
-    conv.timestamp = now_ms;
-}
-self.conversations.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-// Delayed refresh brings the real sent message into the thread
-```
-
-## Contact Name Resolution
-
-KDE Connect syncs contacts as vCard files to `~/.local/share/kpeoplevcard/kdeconnect-{device-id}/`.
-
-```rust
-let contacts = ContactLookup::load_for_device(&device_id);
-let name = contacts.get_name_or_number("+15551234567"); // Returns "John Doe" or the number
-```
-
-## Message Type Constants
-
-Android SMS type values (from `msg.message_type`):
-- `1` = MESSAGE_TYPE_INBOX (received)
-- `2` = MESSAGE_TYPE_SENT
-- `3` = MESSAGE_TYPE_DRAFT
-- `4` = MESSAGE_TYPE_OUTBOX
-- `5` = MESSAGE_TYPE_FAILED
-- `6` = MESSAGE_TYPE_QUEUED
-
-## D-Bus Struct Field Order
-
-The message struct from KDE Connect (from `conversationmessage.h`):
-- Field 0: `eventField` (i32) - Event flags
-- Field 1: `body` (string) - Message text
-- Field 2: `addresses` (array) - List of phone numbers
-- Field 3: `date` (i64) - Timestamp
-- Field 4: `type` (i32) - **Message type** (1=received, 2=sent)
-- Field 5: `read` (i32) - Read status
-- Field 6: `threadID` (i64) - Conversation thread ID
-- Field 7: `uID` (i32) - Unique message ID
-- Field 8: `subID` (i64) - SIM ID
-- Field 9: `attachments` (array) - Attachment list
-
-Direction determined by field 4:
-```rust
-let is_received = msg.message_type == MessageType::Inbox; // type == 1
-```
+- `docs/KNOWN_ISSUES.md`
+- `docs/NOTIFICATIONS.md`
+- `docs/DBUS.md`

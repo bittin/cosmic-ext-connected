@@ -89,14 +89,19 @@ Share plugin emits `shareReceived` signal with:
 ### Display
 
 ```rust
-notify_rust::Notification::new()
+let mut notification = notify_rust::Notification::new();
+notification
     .summary(&fl!("file-received-from", device = device_name))
     .body(&file_name)
     .icon("folder-download-symbolic")
     .appname("Connected")
-    .timeout(notify_rust::Timeout::Milliseconds(5000))
-    .show()
+    .timeout(notify_rust::Timeout::Never);
+show_and_auto_close(notification, timeout_ms, "file").await;
 ```
+
+### Timeout Handling
+
+COSMIC's notification daemon ignores the freedesktop `expire_timeout` hint and uses its own fixed duration. All notification types (SMS, call, file) are created with `Timeout::Never` and explicitly closed after the user-configured `notification_timeout_secs` via `show_and_auto_close()` in `app.rs`.
 
 ## Cross-Process Deduplication
 

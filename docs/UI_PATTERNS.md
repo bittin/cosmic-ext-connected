@@ -8,29 +8,17 @@ The applet tracks current view:
 
 ```rust
 pub enum ViewMode {
-    DeviceList,       // Main device list
-    DevicePage,       // Individual device details
-    SendTo,           // "Send to device" submenu
-    ConversationList, // SMS conversations
-    MessageThread,    // SMS message thread
-    NewMessage,       // Compose new SMS
-    Settings,         // Settings panel
-    MediaControls,    // Media player controls
+    DeviceList,           // Main device list
+    DevicePage,           // Individual device details
+    SendTo,               // "Send to device" submenu
+    ConversationList,     // SMS conversations
+    MessageThread,        // SMS message thread
+    NewMessage,           // Compose new SMS
+    Settings,             // Settings panel
+    NotificationSettings, // Notification settings sub-page
+    MediaControls,        // Media player controls
 }
 ```
-
-## Popup Width Management
-
-Two popup widths:
-
-```rust
-const DEFAULT_POPUP_WIDTH: f32 = 360.0;  // Standard libcosmic
-const WIDE_POPUP_WIDTH: f32 = 450.0;     // SMS/media views
-```
-
-**Wide popup (450px):** ConversationList, MessageThread, NewMessage, MediaControls
-
-**Default popup (360px):** DeviceList, DevicePage, Settings, SendTo
 
 ## Async Tasks
 
@@ -74,7 +62,9 @@ Message::PopupClosed(id) => {
 }
 ```
 
-**Important:** Use `destroy_popup()` and `get_popup()` helpers. Manual runtime actions cause issues where clicking panel icon to close prevents reopening.
+**Important:** Use `destroy_popup()` and `get_popup()` helpers. Manual runtime actions cause issues where clicking the panel icon to close prevents reopening.
+
+Note: newer libcosmic examples use `cosmic::surface::action::{app_popup, destroy_popup}`. This codebase still uses the older `platform_specific::shell::wayland::commands::popup` API intentionally; switching requires reworking the popup message flow.
 
 ## View Lifetimes
 
@@ -154,7 +144,7 @@ let name = self.device_name.as_deref().unwrap_or(&default_name);
 Uses `cosmic_config` for persistent settings:
 
 ```rust
-// Location: ~/.config/cosmic/io.github.nwxnw.connected/v4/
+// Location: ~/.config/cosmic/io.github.nwxnw.cosmic-ext-connected/v7/
 
 // Load
 let config = Config::load();

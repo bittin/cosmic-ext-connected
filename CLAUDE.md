@@ -73,7 +73,7 @@ cosmic-ext-connected/
 │   ├── subscriptions.rs    # D-Bus signal subscriptions
 │   ├── device/             # Device fetch and actions
 │   ├── sms/                # SMS conversations, views, subscriptions
-│   │   ├── send.rs                       # SMS sending (sendWithoutConversation for both replies and new messages)
+│   │   ├── send.rs                       # SMS sending (replyToConversation for replies, sendWithoutConversation for new messages)
 │   │   ├── conversation_subscription.rs  # Dual D-Bus request + incremental conversation loading
 │   │   ├── fetch.rs                      # Conversation fetching and caching
 │   │   └── views.rs                      # SMS conversation list and thread views

@@ -13,6 +13,7 @@ All notable changes to Connected will be documented in this file.
 ### Fixed
 - SMS message handling: optimistic send with body-based reconciliation
 - Conversation list and message thread subscriptions converted to long-lived (fixes premature termination during bursty phone signals)
+- Conversation list bootstrap: settles on a quiet window, retries once on small cold-start results, and re-reads daemon cache to merge late-arriving data
 - Cold start false "no conversations" display (spinner shown until data arrives)
 - Missing applet icon in COSMIC Panel settings for Flatpak installs
 - Conversation list: long message previews no longer push the date and chevron off the right edge
