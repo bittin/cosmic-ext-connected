@@ -6,12 +6,17 @@
 
 use crate::app::Message;
 use crate::constants::dbus::RETRY_DELAY_SECS;
-use crate::constants::sms::{CONVERSATION_LIST_PHONE_WAIT_MS, CONVERSATION_TIMEOUT_CACHED_SECS};
+use crate::constants::sms::{
+    CONVERSATION_LIST_CACHE_POLL_MS, CONVERSATION_LIST_PHONE_WAIT_MS, CONVERSATION_LIST_QUIET_MS,
+    CONVERSATION_LIST_RETRY_THRESHOLD, CONVERSATION_LIST_RETRY_WAIT_MS,
+    CONVERSATION_TIMEOUT_CACHED_SECS,
+};
 use futures_util::StreamExt;
 use kdeconnect_dbus::plugins::{
     parse_sms_message, ConversationSummary, ConversationsProxy, SmsProxy,
 };
-use zbus::Connection;
+use std::collections::HashMap;
+use zbus::{Connection, Proxy};
 
 /// Heartbeat interval after sync indicator is dismissed (seconds).
 /// Keeps the unfold alive so iced can cancel it when the view closes.
@@ -26,20 +31,34 @@ enum ConversationListState {
     /// Emitting cached conversations one at a time before listening for signals
     EmittingCached {
         conn: Connection,
+        conversations_proxy: ConversationsProxy<'static>,
         stream: zbus::MessageStream,
         device_id: String,
         pending_conversations: Vec<ConversationSummary>,
+        known_conversations: HashMap<i64, i64>,
     },
     Listening {
         #[allow(dead_code)]
         conn: Connection,
+        conversations_proxy: ConversationsProxy<'static>,
         stream: zbus::MessageStream,
         device_id: String,
-        /// Absolute deadline for how long to wait before dismissing the sync
-        /// spinner. After it fires, the subscription continues listening.
-        phone_deadline: tokio::time::Instant,
+        /// Absolute deadline for the current bootstrap attempt.
+        bootstrap_deadline: tokio::time::Instant,
         /// Whether `ConversationSyncComplete` has been emitted (sync spinner dismissed).
         sync_complete_emitted: bool,
+        /// Whether this listening session started without cached conversations.
+        cold_start: bool,
+        /// Tracks the newest timestamp we have emitted per thread.
+        known_conversations: HashMap<i64, i64>,
+        /// Pending conversations to emit one at a time.
+        pending_conversations: Vec<ConversationSummary>,
+        /// Last time we observed meaningful bootstrap activity.
+        last_activity: Option<tokio::time::Instant>,
+        /// Next time we should re-read cached conversations from the daemon.
+        next_cache_poll: tokio::time::Instant,
+        /// Number of bootstrap retries already issued.
+        retry_count: u8,
     },
     /// Terminal state — stream is finished.
     Done,
@@ -146,48 +165,33 @@ pub fn conversation_list_subscription(
                     let device_path =
                         format!("{}/devices/{}", kdeconnect_dbus::BASE_PATH, device_id);
 
-                    let conversations_proxy = match ConversationsProxy::builder(&conn)
-                        .path(device_path.as_str())
-                        .ok()
-                        .map(|b| b.build())
+                    let conversations_proxy = match Proxy::new_owned(
+                        conn.clone(),
+                        kdeconnect_dbus::SERVICE_NAME,
+                        device_path.clone(),
+                        "org.kde.kdeconnect.device.conversations",
+                    )
+                    .await
                     {
-                        Some(fut) => match fut.await {
-                            Ok(p) => Some(p),
-                            Err(e) => {
-                                tracing::warn!("Failed to create conversations proxy: {}", e);
-                                None
-                            }
-                        },
-                        None => None,
+                        Ok(proxy) => ConversationsProxy::from(proxy),
+                        Err(e) => {
+                            tracing::warn!("Failed to create conversations proxy: {}", e);
+                            return Some((
+                                Message::SmsError(format!(
+                                    "Failed to create conversations proxy: {}",
+                                    e
+                                )),
+                                ConversationListState::Init { device_id },
+                            ));
+                        }
                     };
 
                     // Get cached conversations first (for immediate display)
-                    let mut initial_conversations: Vec<ConversationSummary> = Vec::new();
-                    if let Some(ref proxy) = conversations_proxy {
-                        if let Ok(cached) = proxy.active_conversations().await {
-                            tracing::info!("Got {} cached conversation values", cached.len());
-                            for value in &cached {
-                                if let Some(sms_msg) = parse_sms_message(value) {
-                                    let has_attachments = !sms_msg.attachments.is_empty();
-                                    initial_conversations.push(ConversationSummary {
-                                        thread_id: sms_msg.thread_id,
-                                        addresses: sms_msg.addresses,
-                                        last_message: sms_msg.body,
-                                        timestamp: sms_msg.date,
-                                        unread: !sms_msg.read,
-                                        has_attachments,
-                                    });
-                                }
-                            }
-                            // Sort by timestamp (newest first) and deduplicate
-                            initial_conversations.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-                            let mut seen = std::collections::HashSet::new();
-                            initial_conversations.retain(|c| seen.insert(c.thread_id));
-                            tracing::info!(
-                                "Parsed {} unique cached conversations",
-                                initial_conversations.len()
-                            );
-                        }
+                    let mut initial_conversations =
+                        fetch_cached_conversations(&conversations_proxy, &device_id).await;
+                    let mut known_conversations = HashMap::new();
+                    for conversation in &initial_conversations {
+                        known_conversations.insert(conversation.thread_id, conversation.timestamp);
                     }
 
                     // Fire TWO requests (mirrors the pattern from conversation message loading):
@@ -199,47 +203,7 @@ pub fn conversation_list_subscription(
                     //
                     // Without the SMS plugin request, the Conversations interface may only
                     // read from an empty local store and emit no signals.
-                    let sms_path =
-                        format!("{}/devices/{}/sms", kdeconnect_dbus::BASE_PATH, device_id);
-
-                    match SmsProxy::builder(&conn)
-                        .path(sms_path.as_str())
-                        .ok()
-                        .map(|b| b.build())
-                    {
-                        Some(fut) => match fut.await {
-                            Ok(sms_proxy) => {
-                                if let Err(e) = sms_proxy.request_all_conversations().await {
-                                    tracing::warn!(
-                                        "SMS plugin requestAllConversations failed (non-fatal): {}",
-                                        e
-                                    );
-                                } else {
-                                    tracing::debug!(
-                                        "SMS plugin requestAllConversations fired for device {} (cache priming)",
-                                        device_id
-                                    );
-                                }
-                            }
-                            Err(e) => {
-                                tracing::warn!("Failed to create SMS proxy (non-fatal): {}", e);
-                            }
-                        },
-                        None => {
-                            tracing::warn!("Failed to build SMS proxy path (non-fatal)");
-                        }
-                    }
-
-                    // Conversations interface request (local store signals)
-                    if let Some(ref proxy) = conversations_proxy {
-                        tracing::info!(
-                            "Firing requestAllConversationThreads for device {}",
-                            device_id
-                        );
-                        if let Err(e) = proxy.request_all_conversation_threads().await {
-                            tracing::warn!("Failed to request conversation threads: {}", e);
-                        }
-                    }
+                    request_conversation_bootstrap(&conn, &device_id, &conversations_proxy).await;
 
                     let now = tokio::time::Instant::now();
 
@@ -260,9 +224,11 @@ pub fn conversation_list_subscription(
                             },
                             ConversationListState::EmittingCached {
                                 conn,
+                                conversations_proxy,
                                 stream,
                                 device_id,
                                 pending_conversations: initial_conversations,
+                                known_conversations,
                             },
                         ));
                     }
@@ -276,18 +242,27 @@ pub fn conversation_list_subscription(
                         },
                         ConversationListState::Listening {
                             conn,
+                            conversations_proxy,
                             stream,
                             device_id,
-                            phone_deadline,
+                            bootstrap_deadline: phone_deadline,
                             sync_complete_emitted: false,
+                            cold_start: true,
+                            known_conversations,
+                            pending_conversations: Vec::new(),
+                            last_activity: None,
+                            next_cache_poll: now,
+                            retry_count: 0,
                         },
                     ))
                 }
                 ConversationListState::EmittingCached {
                     conn,
+                    conversations_proxy,
                     stream,
                     device_id,
                     mut pending_conversations,
+                    known_conversations,
                 } => {
                     // Emit cached conversations one at a time
                     if !pending_conversations.is_empty() {
@@ -304,9 +279,11 @@ pub fn conversation_list_subscription(
                             },
                             ConversationListState::EmittingCached {
                                 conn,
+                                conversations_proxy,
                                 stream,
                                 device_id,
                                 pending_conversations,
+                                known_conversations,
                             },
                         ));
                     }
@@ -326,48 +303,190 @@ pub fn conversation_list_subscription(
                         },
                         ConversationListState::Listening {
                             conn,
+                            conversations_proxy,
                             stream,
                             device_id,
-                            phone_deadline,
+                            bootstrap_deadline: phone_deadline,
                             sync_complete_emitted: false,
+                            cold_start: false,
+                            known_conversations,
+                            pending_conversations: Vec::new(),
+                            // Warm start already has cached rows on screen. Leave activity unset
+                            // so the cached bootstrap deadline remains the settle condition unless
+                            // real post-bootstrap updates arrive.
+                            last_activity: None,
+                            next_cache_poll: now,
+                            retry_count: 0,
                         },
                     ))
                 }
                 ConversationListState::Listening {
                     conn,
+                    conversations_proxy,
                     mut stream,
                     device_id,
-                    phone_deadline,
+                    mut bootstrap_deadline,
                     mut sync_complete_emitted,
+                    cold_start,
+                    mut known_conversations,
+                    mut pending_conversations,
+                    mut last_activity,
+                    mut next_cache_poll,
+                    mut retry_count,
                 } => {
                     loop {
                         let now = tokio::time::Instant::now();
 
-                        // Phone deadline: dismiss the sync indicator once, then
-                        // continue listening with a long heartbeat sleep.
-                        let sleep_duration = if sync_complete_emitted {
-                            tokio::time::Duration::from_secs(HEARTBEAT_SLEEP_SECS)
-                        } else if now >= phone_deadline {
-                            tracing::info!(
-                                "Conversation list sync: phone deadline reached for device {}, \
-                                 dismissing spinner (subscription continues)",
-                                device_id
-                            );
-                            sync_complete_emitted = true;
+                        if !pending_conversations.is_empty() {
+                            let conversation = pending_conversations.remove(0);
                             return Some((
-                                Message::ConversationSyncComplete {
+                                Message::ConversationReceived {
                                     device_id: device_id.clone(),
+                                    conversation,
                                 },
                                 ConversationListState::Listening {
                                     conn,
+                                    conversations_proxy,
                                     stream,
                                     device_id,
-                                    phone_deadline,
+                                    bootstrap_deadline,
                                     sync_complete_emitted,
+                                    cold_start,
+                                    known_conversations,
+                                    pending_conversations,
+                                    last_activity,
+                                    next_cache_poll,
+                                    retry_count,
                                 },
                             ));
+                        }
+
+                        if !sync_complete_emitted && now >= next_cache_poll {
+                            let cached =
+                                fetch_cached_conversations(&conversations_proxy, &device_id).await;
+                            let discovered =
+                                collect_new_conversations(cached, &mut known_conversations);
+                            next_cache_poll = tokio::time::Instant::now()
+                                + tokio::time::Duration::from_millis(
+                                    CONVERSATION_LIST_CACHE_POLL_MS,
+                                );
+
+                            if !discovered.is_empty() {
+                                last_activity = Some(tokio::time::Instant::now());
+                                pending_conversations = discovered;
+                                continue;
+                            }
+                        }
+
+                        if !sync_complete_emitted {
+                            if let Some(last) = last_activity {
+                                if now.duration_since(last)
+                                    >= tokio::time::Duration::from_millis(
+                                        CONVERSATION_LIST_QUIET_MS,
+                                    )
+                                {
+                                    tracing::info!(
+                                        "Conversation list sync settled for device {} after activity, \
+                                         dismissing spinner with {} known conversations",
+                                        device_id,
+                                        known_conversations.len()
+                                    );
+                                    sync_complete_emitted = true;
+                                    return Some((
+                                        Message::ConversationSyncComplete {
+                                            device_id: device_id.clone(),
+                                        },
+                                        ConversationListState::Listening {
+                                            conn,
+                                            conversations_proxy,
+                                            stream,
+                                            device_id,
+                                            bootstrap_deadline,
+                                            sync_complete_emitted,
+                                            cold_start,
+                                            known_conversations,
+                                            pending_conversations,
+                                            last_activity,
+                                            next_cache_poll,
+                                            retry_count,
+                                        },
+                                    ));
+                                }
+                            }
+
+                            if now >= bootstrap_deadline {
+                                if cold_start
+                                    && retry_count == 0
+                                    && known_conversations.len() < CONVERSATION_LIST_RETRY_THRESHOLD
+                                {
+                                    tracing::info!(
+                                        "Conversation list bootstrap for device {} reached hard deadline \
+                                         with only {} conversations; retrying once",
+                                        device_id,
+                                        known_conversations.len()
+                                    );
+                                    request_conversation_bootstrap(
+                                        &conn,
+                                        &device_id,
+                                        &conversations_proxy,
+                                    )
+                                    .await;
+                                    retry_count += 1;
+                                    bootstrap_deadline = tokio::time::Instant::now()
+                                        + tokio::time::Duration::from_millis(
+                                            CONVERSATION_LIST_RETRY_WAIT_MS,
+                                        );
+                                    next_cache_poll = tokio::time::Instant::now();
+                                    continue;
+                                }
+
+                                tracing::info!(
+                                    "Conversation list sync: bootstrap deadline reached for device {}, \
+                                     dismissing spinner with {} known conversations",
+                                    device_id,
+                                    known_conversations.len()
+                                );
+                                sync_complete_emitted = true;
+                                return Some((
+                                    Message::ConversationSyncComplete {
+                                        device_id: device_id.clone(),
+                                    },
+                                    ConversationListState::Listening {
+                                        conn,
+                                        conversations_proxy,
+                                        stream,
+                                        device_id,
+                                        bootstrap_deadline,
+                                        sync_complete_emitted,
+                                        cold_start,
+                                        known_conversations,
+                                        pending_conversations,
+                                        last_activity,
+                                        next_cache_poll,
+                                        retry_count,
+                                    },
+                                ));
+                            }
+                        }
+
+                        // After bootstrap settles, remain connected and only wake
+                        // periodically so iced can cancel the stream cleanly.
+                        let sleep_duration = if sync_complete_emitted {
+                            tokio::time::Duration::from_secs(HEARTBEAT_SLEEP_SECS)
                         } else {
-                            phone_deadline.saturating_duration_since(now)
+                            let mut sleep_duration =
+                                bootstrap_deadline.saturating_duration_since(now);
+                            sleep_duration =
+                                sleep_duration.min(next_cache_poll.saturating_duration_since(now));
+                            if let Some(last) = last_activity {
+                                let quiet_deadline = last
+                                    + tokio::time::Duration::from_millis(
+                                        CONVERSATION_LIST_QUIET_MS,
+                                    );
+                                sleep_duration = sleep_duration
+                                    .min(quiet_deadline.saturating_duration_since(now));
+                            }
+                            sleep_duration
                         };
 
                         tokio::select! {
@@ -400,33 +519,39 @@ pub fn conversation_list_subscription(
                                                     let body = msg.body();
                                                     if let Ok(value) = body.deserialize::<zbus::zvariant::OwnedValue>() {
                                                         if let Some(sms_msg) = parse_sms_message(&value) {
-                                                            let has_attachments = !sms_msg.attachments.is_empty();
-                                                            let conversation = ConversationSummary {
-                                                                thread_id: sms_msg.thread_id,
-                                                                addresses: sms_msg.addresses,
-                                                                last_message: sms_msg.body,
-                                                                timestamp: sms_msg.date,
-                                                                unread: !sms_msg.read,
-                                                                has_attachments,
-                                                            };
-                                                            tracing::debug!(
-                                                                "conversationCreated: thread {} for device {}",
-                                                                conversation.thread_id,
-                                                                device_id
-                                                            );
-                                                            return Some((
-                                                                Message::ConversationReceived {
-                                                                    device_id: device_id.clone(),
-                                                                    conversation,
-                                                                },
-                                                                ConversationListState::Listening {
-                                                                    conn,
-                                                                    stream,
-                                                                    device_id,
-                                                                    phone_deadline,
-                                                                    sync_complete_emitted,
-                                                                },
-                                                            ));
+                                                            if let Some(conversation) =
+                                                                remember_signal_conversation(
+                                                                    summarize_message(sms_msg),
+                                                                    &mut known_conversations,
+                                                                )
+                                                            {
+                                                                last_activity = Some(tokio::time::Instant::now());
+                                                                tracing::debug!(
+                                                                    "conversationCreated: thread {} for device {}",
+                                                                    conversation.thread_id,
+                                                                    device_id
+                                                                );
+                                                                return Some((
+                                                                    Message::ConversationReceived {
+                                                                        device_id: device_id.clone(),
+                                                                        conversation,
+                                                                    },
+                                                                    ConversationListState::Listening {
+                                                                        conn,
+                                                                        conversations_proxy,
+                                                                        stream,
+                                                                        device_id,
+                                                                        bootstrap_deadline,
+                                                                        sync_complete_emitted,
+                                                                        cold_start,
+                                                                        known_conversations,
+                                                                        pending_conversations,
+                                                                        last_activity,
+                                                                        next_cache_poll,
+                                                                        retry_count,
+                                                                    },
+                                                                ));
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -438,33 +563,39 @@ pub fn conversation_list_subscription(
                                                     let body = msg.body();
                                                     if let Ok(value) = body.deserialize::<zbus::zvariant::OwnedValue>() {
                                                         if let Some(sms_msg) = parse_sms_message(&value) {
-                                                            let has_attachments = !sms_msg.attachments.is_empty();
-                                                            let conversation = ConversationSummary {
-                                                                thread_id: sms_msg.thread_id,
-                                                                addresses: sms_msg.addresses,
-                                                                last_message: sms_msg.body,
-                                                                timestamp: sms_msg.date,
-                                                                unread: !sms_msg.read,
-                                                                has_attachments,
-                                                            };
-                                                            tracing::debug!(
-                                                                "conversationUpdated: thread {} for device {}",
-                                                                conversation.thread_id,
-                                                                device_id
-                                                            );
-                                                            return Some((
-                                                                Message::ConversationReceived {
-                                                                    device_id: device_id.clone(),
-                                                                    conversation,
-                                                                },
-                                                                ConversationListState::Listening {
-                                                                    conn,
-                                                                    stream,
-                                                                    device_id,
-                                                                    phone_deadline,
-                                                                    sync_complete_emitted,
-                                                                },
-                                                            ));
+                                                            if let Some(conversation) =
+                                                                remember_signal_conversation(
+                                                                    summarize_message(sms_msg),
+                                                                    &mut known_conversations,
+                                                                )
+                                                            {
+                                                                last_activity = Some(tokio::time::Instant::now());
+                                                                tracing::debug!(
+                                                                    "conversationUpdated: thread {} for device {}",
+                                                                    conversation.thread_id,
+                                                                    device_id
+                                                                );
+                                                                return Some((
+                                                                    Message::ConversationReceived {
+                                                                        device_id: device_id.clone(),
+                                                                        conversation,
+                                                                    },
+                                                                    ConversationListState::Listening {
+                                                                        conn,
+                                                                        conversations_proxy,
+                                                                        stream,
+                                                                        device_id,
+                                                                        bootstrap_deadline,
+                                                                        sync_complete_emitted,
+                                                                        cold_start,
+                                                                        known_conversations,
+                                                                        pending_conversations,
+                                                                        last_activity,
+                                                                        next_cache_poll,
+                                                                        retry_count,
+                                                                    },
+                                                                ));
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -477,7 +608,7 @@ pub fn conversation_list_subscription(
                                                         "conversationLoaded signal for device {}",
                                                         device_id
                                                     );
-                                                    // Continue listening - more signals may come
+                                                    last_activity = Some(tokio::time::Instant::now());
                                                 }
                                             }
                                         }
@@ -513,4 +644,129 @@ pub fn conversation_list_subscription(
             }
         },
     )
+}
+
+fn summarize_message(sms_msg: kdeconnect_dbus::plugins::SmsMessage) -> ConversationSummary {
+    let has_attachments = !sms_msg.attachments.is_empty();
+    ConversationSummary {
+        thread_id: sms_msg.thread_id,
+        addresses: sms_msg.addresses,
+        last_message: sms_msg.body,
+        timestamp: sms_msg.date,
+        unread: !sms_msg.read,
+        has_attachments,
+    }
+}
+
+fn remember_signal_conversation(
+    conversation: ConversationSummary,
+    known_conversations: &mut HashMap<i64, i64>,
+) -> Option<ConversationSummary> {
+    let known = known_conversations.get(&conversation.thread_id).copied();
+    if known.is_none() || known < Some(conversation.timestamp) {
+        known_conversations.insert(conversation.thread_id, conversation.timestamp);
+        Some(conversation)
+    } else {
+        None
+    }
+}
+
+fn collect_new_conversations(
+    mut conversations: Vec<ConversationSummary>,
+    known_conversations: &mut HashMap<i64, i64>,
+) -> Vec<ConversationSummary> {
+    conversations.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    let mut discovered = Vec::new();
+    for conversation in conversations {
+        let known = known_conversations.get(&conversation.thread_id).copied();
+        if known.is_none() || known < Some(conversation.timestamp) {
+            known_conversations.insert(conversation.thread_id, conversation.timestamp);
+            discovered.push(conversation);
+        }
+    }
+    discovered
+}
+
+async fn fetch_cached_conversations(
+    conversations_proxy: &ConversationsProxy<'_>,
+    device_id: &str,
+) -> Vec<ConversationSummary> {
+    let cached = match conversations_proxy.active_conversations().await {
+        Ok(cached) => cached,
+        Err(e) => {
+            tracing::warn!(
+                "Failed to fetch cached conversations for {}: {}",
+                device_id,
+                e
+            );
+            return Vec::new();
+        }
+    };
+
+    tracing::debug!(
+        "Fetched {} cached conversation values for device {}",
+        cached.len(),
+        device_id
+    );
+
+    let mut conversations = Vec::new();
+    for value in &cached {
+        if let Some(sms_msg) = parse_sms_message(value) {
+            conversations.push(summarize_message(sms_msg));
+        }
+    }
+
+    conversations.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    let mut seen = std::collections::HashSet::new();
+    conversations.retain(|conversation| seen.insert(conversation.thread_id));
+    conversations
+}
+
+async fn request_conversation_bootstrap(
+    conn: &Connection,
+    device_id: &str,
+    conversations_proxy: &ConversationsProxy<'_>,
+) {
+    let sms_path = format!("{}/devices/{}/sms", kdeconnect_dbus::BASE_PATH, device_id);
+    let sms_builder = match SmsProxy::builder(conn).path(sms_path.as_str()) {
+        Ok(builder) => builder,
+        Err(_) => {
+            tracing::warn!(
+                "Failed to build SMS proxy path for {} (non-fatal)",
+                device_id
+            );
+            return;
+        }
+    };
+    match sms_builder.build().await {
+        Ok(sms_proxy) => {
+            if let Err(e) = sms_proxy.request_all_conversations().await {
+                tracing::warn!(
+                    "SMS plugin requestAllConversations failed for {} (non-fatal): {}",
+                    device_id,
+                    e
+                );
+            } else {
+                tracing::debug!(
+                    "SMS plugin requestAllConversations fired for device {} (cache priming)",
+                    device_id
+                );
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                "Failed to create SMS proxy for {} (non-fatal): {}",
+                device_id,
+                e
+            );
+        }
+    }
+
+    tracing::info!(
+        "Firing requestAllConversationThreads for device {}",
+        device_id
+    );
+    if let Err(e) = conversations_proxy.request_all_conversation_threads().await {
+        tracing::warn!("Failed to request conversation threads: {}", e);
+    }
 }

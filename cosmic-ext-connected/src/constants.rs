@@ -47,9 +47,24 @@ pub mod sms {
     pub const PHONE_RESPONSE_TIMEOUT_MS: u64 = 8000;
 
     /// How long to show the sync indicator on cold start (milliseconds).
-    /// After this deadline, the spinner is dismissed but the subscription
-    /// continues listening for signals silently.
+    /// This is the hard ceiling for a single bootstrap attempt while loading
+    /// the conversation list on cold start.
     pub const CONVERSATION_LIST_PHONE_WAIT_MS: u64 = 8000;
+
+    /// How often to re-read the daemon's cached conversation heads during
+    /// initial conversation list bootstrap.
+    pub const CONVERSATION_LIST_CACHE_POLL_MS: u64 = 1000;
+
+    /// After we have seen activity during bootstrap, treat the conversation
+    /// list as settled once it stays quiet for this long.
+    pub const CONVERSATION_LIST_QUIET_MS: u64 = 2000;
+
+    /// If a cold bootstrap attempt settles with fewer than this many
+    /// conversations, issue one more request before declaring sync complete.
+    pub const CONVERSATION_LIST_RETRY_THRESHOLD: usize = 5;
+
+    /// How long to wait for the retry bootstrap attempt.
+    pub const CONVERSATION_LIST_RETRY_WAIT_MS: u64 = 6000;
 
     /// Polling delays for fallback conversation loading (milliseconds).
     /// We poll multiple times with increasing delays to give the phone time to sync.
