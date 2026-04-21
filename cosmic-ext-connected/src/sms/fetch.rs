@@ -100,7 +100,7 @@ async fn fetch_conversations_via_signals(
         // If we have cached data, return it; otherwise propagate error
         if !conversations_map.is_empty() {
             let mut result: Vec<ConversationSummary> = conversations_map.into_values().collect();
-            result.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+            result.sort_by_key(|c| std::cmp::Reverse(c.timestamp));
             result.truncate(MAX_CONVERSATIONS);
             return Ok(result);
         }
@@ -282,7 +282,7 @@ async fn fetch_conversations_via_signals(
 
     // Sort by timestamp descending (most recent first)
     let mut result: Vec<ConversationSummary> = conversations_map.into_values().collect();
-    result.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    result.sort_by_key(|c| std::cmp::Reverse(c.timestamp));
     result.truncate(MAX_CONVERSATIONS);
 
     tracing::info!("Final: {} conversations loaded via signals", result.len());
@@ -482,7 +482,7 @@ pub async fn fetch_older_messages_async(
 
     // Convert map to sorted vector (oldest first)
     let mut messages: Vec<SmsMessage> = messages_map.into_values().collect();
-    messages.sort_by(|a, b| a.date.cmp(&b.date));
+    messages.sort_by_key(|m| m.date);
 
     // Determine if there are more messages available using heuristic
     // (will be overridden by total_message_count if available)
@@ -607,7 +607,7 @@ pub async fn prefetch_conversations_async(
     match conversations_proxy.active_conversations().await {
         Ok(values) => {
             let mut conversations = parse_conversations(values);
-            conversations.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+            conversations.sort_by_key(|c| std::cmp::Reverse(c.timestamp));
             tracing::debug!(
                 "SMS prefetch: {} conversations for device {}",
                 conversations.len(),

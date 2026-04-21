@@ -95,9 +95,7 @@ impl ContactLookup {
         }
 
         // Sort contacts alphabetically by name for consistent display
-        lookup
-            .contacts
-            .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        lookup.contacts.sort_by_key(|c| c.name.to_lowercase());
 
         tracing::info!(
             "Loaded {} contacts with {} exact + {} suffix phone mappings",

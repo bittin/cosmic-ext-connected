@@ -44,7 +44,7 @@ jobs:
 
       - name: Clippy check
         if: steps.diff.outputs.changed == 'true'
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: Extract updated versions
         if: steps.diff.outputs.changed == 'true'

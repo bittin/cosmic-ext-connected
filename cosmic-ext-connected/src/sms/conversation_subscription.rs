@@ -675,7 +675,7 @@ fn collect_new_conversations(
     mut conversations: Vec<ConversationSummary>,
     known_conversations: &mut HashMap<i64, i64>,
 ) -> Vec<ConversationSummary> {
-    conversations.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    conversations.sort_by_key(|c| std::cmp::Reverse(c.timestamp));
     let mut discovered = Vec::new();
     for conversation in conversations {
         let known = known_conversations.get(&conversation.thread_id).copied();
@@ -716,7 +716,7 @@ async fn fetch_cached_conversations(
         }
     }
 
-    conversations.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    conversations.sort_by_key(|c| std::cmp::Reverse(c.timestamp));
     let mut seen = std::collections::HashSet::new();
     conversations.retain(|conversation| seen.insert(conversation.thread_id));
     conversations

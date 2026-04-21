@@ -396,7 +396,7 @@ pub fn parse_conversations(values: Vec<OwnedValue>) -> Vec<ConversationSummary> 
     let mut messages: Vec<SmsMessage> = values.iter().filter_map(parse_sms_message).collect();
 
     // Sort by date descending to get most recent first
-    messages.sort_by(|a, b| b.date.cmp(&a.date));
+    messages.sort_by_key(|m| std::cmp::Reverse(m.date));
 
     // Group by thread_id and take the first (most recent) message per thread
     let mut seen_threads = std::collections::HashSet::new();
@@ -436,7 +436,7 @@ pub fn parse_messages(values: Vec<OwnedValue>, thread_id: i64) -> Vec<SmsMessage
         .collect();
 
     // Sort by date ascending (oldest first for display)
-    messages.sort_by(|a, b| a.date.cmp(&b.date));
+    messages.sort_by_key(|m| m.date);
 
     messages
 }

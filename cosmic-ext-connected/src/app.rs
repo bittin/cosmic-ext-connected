@@ -1385,7 +1385,7 @@ impl Application for ConnectApplet {
 
                 // Re-sort by timestamp (newest first) and truncate
                 self.conversations
-                    .sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+                    .sort_by_key(|c| std::cmp::Reverse(c.timestamp));
                 self.conversations
                     .truncate(kdeconnect_dbus::plugins::MAX_CONVERSATIONS);
 
@@ -1816,7 +1816,7 @@ impl Application for ConnectApplet {
                 );
 
                 // Messages are already sorted during insertion, but sort again as safety
-                self.messages.sort_by(|a, b| a.date.cmp(&b.date));
+                self.messages.sort_by_key(|m| m.date);
 
                 // Update pagination state
                 // Note: total_count from conversationLoaded reflects the LOCAL store count,
@@ -1935,7 +1935,7 @@ impl Application for ConnectApplet {
                                 conv.timestamp = now_ms;
                             }
                             self.conversations
-                                .sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+                                .sort_by_key(|c| std::cmp::Reverse(c.timestamp));
 
                             // Insert optimistic message if echo hasn't already arrived.
                             // sms_sending_body is cleared by confirmed_send in
