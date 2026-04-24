@@ -1,7 +1,6 @@
 //! SendTo view component for sharing content with a device.
 
 use crate::app::Message;
-use crate::device::DeviceClass;
 use crate::fl;
 use cosmic::applet;
 use cosmic::iced::widget::{column, row};
@@ -33,18 +32,15 @@ pub struct SendToParams<'a> {
     pub status_message: Option<&'a str>,
 }
 
-/// View for the "Send to device" submenu.
+/// View for the "Send to device" submenu. Reached only from mobile device
+/// pages; non-mobile peers inline the share primitives on the device page
+/// and navigate to `view_share_text` for text compose.
 pub fn view_send_to(params: SendToParams<'_>) -> Element<'_, Message> {
     let sp = cosmic::theme::spacing();
     let device_type = params.device_type;
     let device_id = params.device_id.to_string();
-    let class = DeviceClass::from_device_type(device_type);
     let device_label = device_type_label(device_type);
-    let title = if class.is_mobile() {
-        fl!("send-to-title", device = device_label.as_str())
-    } else {
-        fl!("share-with-title", device = device_label.as_str())
-    };
+    let title = fl!("send-to-title", device = device_label.as_str());
 
     // Header with back button and title
     let header = applet::padded_control(
@@ -141,6 +137,74 @@ pub fn view_send_to(params: SendToParams<'_>) -> Element<'_, Message> {
             applet::padded_control(
                 column![share_text_heading, share_text_input, send_text_btn,].spacing(sp.space_xs),
             ),
+        ]
+        .spacing(sp.space_xxxs)
+        .padding([0, sp.space_s as u16, sp.space_s as u16, sp.space_s as u16]),
+    )
+    .into()
+}
+
+/// View parameters for the focused Share Text compose view.
+pub struct ShareTextParams<'a> {
+    /// Device type (e.g., "desktop", "laptop").
+    pub device_type: &'a str,
+    /// Device ID.
+    pub device_id: &'a str,
+    /// Current text input for sharing.
+    pub share_text_input: &'a str,
+    /// Status message to display, if any.
+    pub status_message: Option<&'a str>,
+}
+
+/// Focused compose view for sharing text with a non-mobile peer. Reached from
+/// the desktop/laptop/tv device page, where the other share primitives (file,
+/// clipboard, ping) are inlined as direct actions.
+pub fn view_share_text(params: ShareTextParams<'_>) -> Element<'_, Message> {
+    let sp = cosmic::theme::spacing();
+    let device_id = params.device_id.to_string();
+    let device_label = device_type_label(params.device_type);
+    let title = fl!("share-text-with-title", device = device_label.as_str());
+    let text_to_share = params.share_text_input.to_string();
+
+    let header = applet::padded_control(
+        row![
+            widget::button::icon(icon::from_name("go-previous-symbolic"))
+                .class(cosmic::theme::Button::Link)
+                .on_press(Message::BackFromShareText),
+            text::heading(title),
+        ]
+        .spacing(sp.space_xxs)
+        .align_y(Alignment::Center),
+    );
+
+    let share_text_input =
+        widget::text_input(fl!("share-text-placeholder"), params.share_text_input)
+            .on_input(Message::ShareTextInput)
+            .width(Length::Fill);
+
+    let send_text_btn = widget::button::standard(fl!("send-text"))
+        .leading_icon(icon::from_name("edit-paste-symbolic").size(16))
+        .on_press_maybe(if params.share_text_input.is_empty() {
+            None
+        } else {
+            Some(Message::ShareText(device_id, text_to_share))
+        });
+
+    let status_bar: Element<Message> = if let Some(msg) = params.status_message {
+        widget::container(text::caption(msg))
+            .padding([sp.space_xxxs, sp.space_xxs])
+            .width(Length::Fill)
+            .class(cosmic::theme::Container::Card)
+            .into()
+    } else {
+        widget::Space::new().into()
+    };
+
+    widget::container(
+        column![
+            header,
+            status_bar,
+            applet::padded_control(column![share_text_input, send_text_btn].spacing(sp.space_xs),),
         ]
         .spacing(sp.space_xxxs)
         .padding([0, sp.space_s as u16, sp.space_s as u16, sp.space_s as u16]),

@@ -65,16 +65,18 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
     } else if !device.is_reachable {
         Some(text::caption(fl!("device-must-be-connected")).into())
     } else if device.is_paired {
-        let device_id_for_sendto = device.id.clone();
-        let device_type_for_sendto = device.device_type.clone();
         let device_id_for_media = device.id.clone();
         let device_id_for_unpair = device.id.clone();
-        let device_label = device_type_label(&device.device_type);
         let mut items: Vec<Element<Message>> = Vec::new();
 
-        // SMS Messages - mobile only
         if class.is_mobile() {
+            // Mobile: SMS → Send-to submenu → Media → Find Phone.
             let device_id_for_sms = device.id.clone();
+            let device_id_for_sendto = device.id.clone();
+            let device_type_for_sendto = device.device_type.clone();
+            let device_id_for_find = device.id.clone();
+            let device_label = device_type_label(&device.device_type);
+
             let sms_row = row![
                 icon::from_name("mail-message-new-symbolic").size(24),
                 text::body(fl!("sms-messages")),
@@ -88,49 +90,38 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
                     .on_press(Message::OpenSmsView(device_id_for_sms))
                     .into(),
             );
-        }
 
-        // Send to / Share with - label varies by class
-        let sendto_label = if class.is_mobile() {
-            fl!("send-to", device = device_label.as_str())
-        } else {
-            fl!("share-with", device = device_label.as_str())
-        };
-        let sendto_row = row![
-            icon::from_name("document-send-symbolic").size(24),
-            text::body(sendto_label),
-            widget::space::horizontal(),
-            icon::from_name("go-next-symbolic").size(16),
-        ]
-        .spacing(sp.space_xs)
-        .align_y(Alignment::Center);
-        items.push(
-            applet::menu_button(sendto_row)
-                .on_press(Message::OpenSendToView(
-                    device_id_for_sendto,
-                    device_type_for_sendto,
-                ))
-                .into(),
-        );
+            let sendto_row = row![
+                icon::from_name("document-send-symbolic").size(24),
+                text::body(fl!("send-to", device = device_label.as_str())),
+                widget::space::horizontal(),
+                icon::from_name("go-next-symbolic").size(16),
+            ]
+            .spacing(sp.space_xs)
+            .align_y(Alignment::Center);
+            items.push(
+                applet::menu_button(sendto_row)
+                    .on_press(Message::OpenSendToView(
+                        device_id_for_sendto,
+                        device_type_for_sendto,
+                    ))
+                    .into(),
+            );
 
-        // Media controls - all classes
-        let media_row = row![
-            icon::from_name("multimedia-player-symbolic").size(24),
-            text::body(fl!("media-controls")),
-            widget::space::horizontal(),
-            icon::from_name("go-next-symbolic").size(16),
-        ]
-        .spacing(sp.space_xs)
-        .align_y(Alignment::Center);
-        items.push(
-            applet::menu_button(media_row)
-                .on_press(Message::OpenMediaView(device_id_for_media))
-                .into(),
-        );
+            let media_row = row![
+                icon::from_name("multimedia-player-symbolic").size(24),
+                text::body(fl!("media-controls")),
+                widget::space::horizontal(),
+                icon::from_name("go-next-symbolic").size(16),
+            ]
+            .spacing(sp.space_xs)
+            .align_y(Alignment::Center);
+            items.push(
+                applet::menu_button(media_row)
+                    .on_press(Message::OpenMediaView(device_id_for_media))
+                    .into(),
+            );
 
-        // Find Phone - mobile only (no chevron, immediate action)
-        if class.is_mobile() {
-            let device_id_for_find = device.id.clone();
             let find_row = row![
                 icon::from_name("audio-volume-high-symbolic").size(24),
                 text::body(fl!("find-phone")),
@@ -143,9 +134,87 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
                     .on_press(Message::FindMyPhone(device_id_for_find))
                     .into(),
             );
+        } else {
+            // Non-mobile: inline share primitives as direct actions; Share Text
+            // navigates to a focused compose view. Media stays a submenu nav.
+            let device_id_for_file = device.id.clone();
+            let device_id_for_clipboard = device.id.clone();
+            let device_id_for_ping = device.id.clone();
+            let device_id_for_text = device.id.clone();
+            let device_type_for_text = device.device_type.clone();
+
+            let share_file_row = row![
+                icon::from_name("document-send-symbolic").size(24),
+                text::body(fl!("share-file")),
+                widget::space::horizontal(),
+            ]
+            .spacing(sp.space_xs)
+            .align_y(Alignment::Center);
+            items.push(
+                applet::menu_button(share_file_row)
+                    .on_press(Message::ShareFile(device_id_for_file))
+                    .into(),
+            );
+
+            let clipboard_row = row![
+                icon::from_name("edit-copy-symbolic").size(24),
+                text::body(fl!("share-clipboard")),
+                widget::space::horizontal(),
+            ]
+            .spacing(sp.space_xs)
+            .align_y(Alignment::Center);
+            items.push(
+                applet::menu_button(clipboard_row)
+                    .on_press(Message::SendClipboard(device_id_for_clipboard))
+                    .into(),
+            );
+
+            let ping_row = row![
+                icon::from_name("network-transmit-symbolic").size(24),
+                text::body(fl!("send-ping")),
+                widget::space::horizontal(),
+            ]
+            .spacing(sp.space_xs)
+            .align_y(Alignment::Center);
+            items.push(
+                applet::menu_button(ping_row)
+                    .on_press(Message::SendPing(device_id_for_ping))
+                    .into(),
+            );
+
+            let share_text_row = row![
+                icon::from_name("edit-paste-symbolic").size(24),
+                text::body(fl!("share-text")),
+                widget::space::horizontal(),
+                icon::from_name("go-next-symbolic").size(16),
+            ]
+            .spacing(sp.space_xs)
+            .align_y(Alignment::Center);
+            items.push(
+                applet::menu_button(share_text_row)
+                    .on_press(Message::OpenShareTextView(
+                        device_id_for_text,
+                        device_type_for_text,
+                    ))
+                    .into(),
+            );
+
+            let media_row = row![
+                icon::from_name("multimedia-player-symbolic").size(24),
+                text::body(fl!("media-controls")),
+                widget::space::horizontal(),
+                icon::from_name("go-next-symbolic").size(16),
+            ]
+            .spacing(sp.space_xs)
+            .align_y(Alignment::Center);
+            items.push(
+                applet::menu_button(media_row)
+                    .on_press(Message::OpenMediaView(device_id_for_media))
+                    .into(),
+            );
         }
 
-        // Divider + Unpair - always for paired+reachable, regardless of class
+        // Divider + Unpair — shared across classes.
         items.push(applet::padded_control(widget::divider::horizontal::default()).into());
         let unpair_row = row![
             icon::from_name("list-remove-symbolic").size(24),
