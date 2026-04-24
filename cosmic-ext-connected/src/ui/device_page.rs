@@ -5,7 +5,7 @@
 use crate::app::{DeviceInfo, Message};
 use crate::fl;
 use cosmic::applet;
-use cosmic::iced::widget::{column, row, tooltip};
+use cosmic::iced::widget::{column, row};
 use cosmic::iced::{Alignment, Length};
 use cosmic::widget::{self, icon, text};
 use cosmic::Element;
@@ -24,7 +24,7 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         let device_icon =
             icon::from_name("io.github.nwxnw.cosmic-ext-connected-symbolic").size(48);
 
-        let mut info_row = row![
+        let info_row = row![
             back_btn,
             device_icon,
             column![
@@ -37,38 +37,27 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         .spacing(sp.space_s)
         .align_y(Alignment::Center);
 
-        // Add ping button if device is reachable and paired
-        if device.is_reachable && device.is_paired {
-            let device_id_for_ping = device.id.clone();
-            let ping_btn =
-                widget::button::icon(icon::from_name("network-transmit-symbolic").size(20))
-                    .on_press(Message::SendPing(device_id_for_ping))
-                    .padding(sp.space_xxs);
-            let ping_with_tooltip = tooltip(
-                ping_btn,
-                text::caption(fl!("send-ping")),
-                tooltip::Position::Bottom,
-            )
-            .gap(sp.space_xxxs)
-            .padding(sp.space_xxs);
-            info_row = info_row.push(ping_with_tooltip);
-        }
-
         applet::padded_control(info_row).into()
     };
 
     // Build the combined status row with connected, paired, and battery
     let status_row = build_status_row(device);
 
-    // Actions section - only available for connected and paired devices
-    let actions: Element<Message> = if device.is_reachable && device.is_paired {
+    // Actions section - suppressed entirely while a pair request is in flight
+    // (pairing section below owns the UI for those transient states).
+    let pair_in_flight = device.is_pair_requested || device.is_pair_requested_by_peer;
+    let actions: Option<Element<Message>> = if pair_in_flight {
+        None
+    } else if !device.is_reachable {
+        Some(text::caption(fl!("device-must-be-connected")).into())
+    } else if device.is_paired {
         let device_id_for_sms = device.id.clone();
         let device_id_for_sendto = device.id.clone();
         let device_type_for_sendto = device.device_type.clone();
         let device_id_for_media = device.id.clone();
         let device_id_for_find = device.id.clone();
+        let device_id_for_unpair = device.id.clone();
 
-        // SMS Messages action item
         let sms_row = row![
             icon::from_name("mail-message-new-symbolic").size(24),
             text::body(fl!("sms-messages")),
@@ -77,11 +66,9 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         ]
         .spacing(sp.space_xs)
         .align_y(Alignment::Center);
-
         let sms_item =
             applet::menu_button(sms_row).on_press(Message::OpenSmsView(device_id_for_sms));
 
-        // Send to device action item
         let sendto_row = row![
             icon::from_name("document-send-symbolic").size(24),
             text::body(fl!("send-to", device = device.device_type.as_str())),
@@ -90,13 +77,11 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         ]
         .spacing(sp.space_xs)
         .align_y(Alignment::Center);
-
         let sendto_item = applet::menu_button(sendto_row).on_press(Message::OpenSendToView(
             device_id_for_sendto,
             device_type_for_sendto,
         ));
 
-        // Media controls action item
         let media_row = row![
             icon::from_name("multimedia-player-symbolic").size(24),
             text::body(fl!("media-controls")),
@@ -105,11 +90,9 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         ]
         .spacing(sp.space_xs)
         .align_y(Alignment::Center);
-
         let media_item =
             applet::menu_button(media_row).on_press(Message::OpenMediaView(device_id_for_media));
 
-        // Find Phone action item (no chevron - immediate action)
         let find_row = row![
             icon::from_name("audio-volume-high-symbolic").size(24),
             text::body(fl!("find-phone")),
@@ -117,22 +100,47 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         ]
         .spacing(sp.space_xs)
         .align_y(Alignment::Center);
-
         let find_item =
             applet::menu_button(find_row).on_press(Message::FindMyPhone(device_id_for_find));
 
-        column![sms_item, sendto_item, media_item, find_item,]
-            .spacing(sp.space_xxxs)
-            .into()
-    } else if !device.is_paired {
-        // Not paired - show nothing (pairing section will be shown below)
-        widget::Space::new().into()
-    } else {
-        text::caption(fl!("device-must-be-connected")).into()
-    };
+        let unpair_row = row![
+            icon::from_name("list-remove-symbolic").size(24),
+            text::body(fl!("unpair")),
+            widget::space::horizontal(),
+        ]
+        .spacing(sp.space_xs)
+        .align_y(Alignment::Center);
+        let unpair_item =
+            applet::menu_button(unpair_row).on_press(Message::Unpair(device_id_for_unpair));
 
-    // Pairing section
-    let pairing_section: Element<Message> = build_pairing_section(device);
+        let actions_divider = applet::padded_control(widget::divider::horizontal::default());
+        Some(
+            column![
+                sms_item,
+                sendto_item,
+                media_item,
+                find_item,
+                actions_divider,
+                unpair_item,
+            ]
+            .spacing(sp.space_xxxs)
+            .into(),
+        )
+    } else {
+        let device_id_for_pair = device.id.clone();
+        let pair_row = row![
+            icon::from_name("list-add-symbolic").size(24),
+            text::body(fl!("pair")),
+            widget::space::horizontal(),
+        ]
+        .spacing(sp.space_xs)
+        .align_y(Alignment::Center);
+        Some(
+            applet::menu_button(pair_row)
+                .on_press(Message::RequestPair(device_id_for_pair))
+                .into(),
+        )
+    };
 
     // Notifications section
     let notifications_section: Element<Message> = build_notifications_section(device);
@@ -150,12 +158,19 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
 
     let divider = || applet::padded_control(widget::divider::horizontal::default());
 
-    let mut content = column![status_bar, device_info, status_row, divider(), actions,]
-        .spacing(sp.space_xs)
+    let mut content = column![status_bar, device_info, status_row]
+        .spacing(sp.space_xxs)
         .padding([0, sp.space_s as u16, sp.space_s as u16, sp.space_s as u16]);
 
-    content = content.push(divider());
-    content = content.push(pairing_section);
+    if let Some(actions_elem) = actions {
+        content = content.push(divider());
+        content = content.push(actions_elem);
+    }
+
+    if needs_pairing_section(device) {
+        content = content.push(divider());
+        content = content.push(build_pairing_section(device));
+    }
 
     if !device.notifications.is_empty() {
         content = content.push(divider());
@@ -259,12 +274,19 @@ fn get_battery_icon_name(level: i32, charging: bool) -> &'static str {
     }
 }
 
-/// Build the pairing section based on device state.
+/// Whether the device state requires a pairing section separate from the actions list.
+/// Only pair-request flows (incoming or outgoing) need a dedicated section; steady
+/// paired/unpaired states are handled by the actions list (Unpair / Pair).
+fn needs_pairing_section(device: &DeviceInfo) -> bool {
+    device.is_pair_requested_by_peer || device.is_pair_requested
+}
+
+/// Build the pairing section for in-flight pair request flows.
 fn build_pairing_section<'a>(device: &'a DeviceInfo) -> Element<'a, Message> {
     let sp = cosmic::theme::spacing();
     let device_id = device.id.clone();
 
-    // If peer requested pairing, show accept/reject buttons
+    // Peer requested pairing — show accept/reject buttons
     if device.is_pair_requested_by_peer {
         let accept_id = device_id.clone();
         let reject_id = device_id;
@@ -285,46 +307,11 @@ fn build_pairing_section<'a>(device: &'a DeviceInfo) -> Element<'a, Message> {
         .into();
     }
 
-    // If we requested pairing, show cancel button
-    if device.is_pair_requested {
-        return column![
-            text::heading(fl!("pairing")),
-            text::caption(fl!("waiting-for-device")),
-            widget::button::standard(fl!("cancel")).on_press(Message::RejectPairing(device_id)),
-        ]
-        .spacing(sp.space_xxs)
-        .into();
-    }
-
-    // If paired, show unpair button
-    if device.is_paired {
-        return column![
-            text::heading(fl!("pairing")),
-            widget::button::destructive(fl!("unpair"))
-                .leading_icon(icon::from_name("list-remove-symbolic").size(16))
-                .on_press(Message::Unpair(device_id)),
-        ]
-        .spacing(sp.space_xxs)
-        .into();
-    }
-
-    // If reachable but not paired, show pair button
-    if device.is_reachable {
-        return column![
-            text::heading(fl!("pairing")),
-            text::caption(fl!("device-not-paired")),
-            widget::button::suggested(fl!("pair"))
-                .leading_icon(icon::from_name("list-add-symbolic").size(16))
-                .on_press(Message::RequestPair(device_id)),
-        ]
-        .spacing(sp.space_xxs)
-        .into();
-    }
-
-    // Offline and not paired
+    // We requested pairing — show waiting caption and cancel button
     column![
         text::heading(fl!("pairing")),
-        text::caption(fl!("device-offline")),
+        text::caption(fl!("waiting-for-device")),
+        widget::button::standard(fl!("cancel")).on_press(Message::RejectPairing(device_id)),
     ]
     .spacing(sp.space_xxs)
     .into()
@@ -338,12 +325,16 @@ fn build_notifications_section<'a>(device: &'a DeviceInfo) -> Element<'a, Messag
         return widget::Space::new().into();
     }
 
-    let mut notif_column = column![text::heading(format!(
-        "{} ({})",
-        fl!("notifications"),
-        device.notifications.len()
-    )),]
-    .spacing(sp.space_xxs);
+    let header = row![
+        text::heading(fl!("notifications")),
+        widget::container(text::caption(format!("{}", device.notifications.len())))
+            .padding([2, sp.space_xxxs as u16 + 2])
+            .class(cosmic::theme::Container::Card),
+    ]
+    .spacing(sp.space_xxs)
+    .align_y(Alignment::Center);
+
+    let mut notif_column = column![header].spacing(sp.space_xxs);
 
     for notif in &device.notifications {
         let notif_widget = build_notification_row(device, notif);

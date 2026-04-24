@@ -151,9 +151,9 @@ pub fn view_notification_settings(config: &Config) -> Element<'_, Message> {
     .align_y(Alignment::Center)
     .width(Length::Fixed(160.0));
 
-    let timeout_section = settings::section()
-        .title(fl!("settings-notification-timeout"))
-        .add(settings::item::builder("").control(slider_control));
+    let timeout_section = settings::section().add(
+        settings::item::builder(fl!("settings-notification-timeout")).control(slider_control),
+    );
 
     let sections = settings::view_column(vec![
         sms_section.into(),
