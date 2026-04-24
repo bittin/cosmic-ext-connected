@@ -37,7 +37,7 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         .spacing(sp.space_s)
         .align_y(Alignment::Center);
 
-        // Add ping button if device is reachable and paired
+        // Add ping and unpair buttons when device is reachable and paired
         if device.is_reachable && device.is_paired {
             let device_id_for_ping = device.id.clone();
             let ping_btn =
@@ -52,6 +52,21 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
             .gap(sp.space_xxxs)
             .padding(sp.space_xxs);
             info_row = info_row.push(ping_with_tooltip);
+
+            let device_id_for_unpair = device.id.clone();
+            let unpair_btn =
+                widget::button::icon(icon::from_name("list-remove-symbolic").size(20))
+                    .class(cosmic::theme::Button::Destructive)
+                    .on_press(Message::Unpair(device_id_for_unpair))
+                    .padding(sp.space_xxs);
+            let unpair_with_tooltip = tooltip(
+                unpair_btn,
+                text::caption(fl!("unpair")),
+                tooltip::Position::Bottom,
+            )
+            .gap(sp.space_xxxs)
+            .padding(sp.space_xxs);
+            info_row = info_row.push(unpair_with_tooltip);
         }
 
         applet::padded_control(info_row).into()
@@ -131,9 +146,6 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         text::caption(fl!("device-must-be-connected")).into()
     };
 
-    // Pairing section
-    let pairing_section: Element<Message> = build_pairing_section(device);
-
     // Notifications section
     let notifications_section: Element<Message> = build_notifications_section(device);
 
@@ -151,11 +163,13 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
     let divider = || applet::padded_control(widget::divider::horizontal::default());
 
     let mut content = column![status_bar, device_info, status_row, divider(), actions,]
-        .spacing(sp.space_xs)
+        .spacing(sp.space_xxs)
         .padding([0, sp.space_s as u16, sp.space_s as u16, sp.space_s as u16]);
 
-    content = content.push(divider());
-    content = content.push(pairing_section);
+    if needs_pairing_section(device) {
+        content = content.push(divider());
+        content = content.push(build_pairing_section(device));
+    }
 
     if !device.notifications.is_empty() {
         content = content.push(divider());
@@ -259,7 +273,16 @@ fn get_battery_icon_name(level: i32, charging: bool) -> &'static str {
     }
 }
 
-/// Build the pairing section based on device state.
+/// Whether the device state requires a pairing section separate from the header.
+/// The paired+reachable steady state renders Unpair as an icon button in the
+/// header row instead, so no dedicated section is needed.
+fn needs_pairing_section(device: &DeviceInfo) -> bool {
+    device.is_pair_requested_by_peer
+        || device.is_pair_requested
+        || !device.is_paired
+}
+
+/// Build the pairing section for states where it's needed.
 fn build_pairing_section<'a>(device: &'a DeviceInfo) -> Element<'a, Message> {
     let sp = cosmic::theme::spacing();
     let device_id = device.id.clone();
@@ -296,22 +319,9 @@ fn build_pairing_section<'a>(device: &'a DeviceInfo) -> Element<'a, Message> {
         .into();
     }
 
-    // If paired, show unpair button
-    if device.is_paired {
-        return column![
-            text::heading(fl!("pairing")),
-            widget::button::destructive(fl!("unpair"))
-                .leading_icon(icon::from_name("list-remove-symbolic").size(16))
-                .on_press(Message::Unpair(device_id)),
-        ]
-        .spacing(sp.space_xxs)
-        .into();
-    }
-
     // If reachable but not paired, show pair button
     if device.is_reachable {
         return column![
-            text::heading(fl!("pairing")),
             text::caption(fl!("device-not-paired")),
             widget::button::suggested(fl!("pair"))
                 .leading_icon(icon::from_name("list-add-symbolic").size(16))
@@ -322,12 +332,7 @@ fn build_pairing_section<'a>(device: &'a DeviceInfo) -> Element<'a, Message> {
     }
 
     // Offline and not paired
-    column![
-        text::heading(fl!("pairing")),
-        text::caption(fl!("device-offline")),
-    ]
-    .spacing(sp.space_xxs)
-    .into()
+    text::caption(fl!("device-offline")).into()
 }
 
 /// Build the notifications section.
@@ -338,12 +343,16 @@ fn build_notifications_section<'a>(device: &'a DeviceInfo) -> Element<'a, Messag
         return widget::Space::new().into();
     }
 
-    let mut notif_column = column![text::heading(format!(
-        "{} ({})",
-        fl!("notifications"),
-        device.notifications.len()
-    )),]
-    .spacing(sp.space_xxs);
+    let header = row![
+        text::heading(fl!("notifications")),
+        widget::container(text::caption(format!("{}", device.notifications.len())))
+            .padding([2, sp.space_xxxs as u16 + 2])
+            .class(cosmic::theme::Container::Card),
+    ]
+    .spacing(sp.space_xxs)
+    .align_y(Alignment::Center);
+
+    let mut notif_column = column![header].spacing(sp.space_xxs);
 
     for notif in &device.notifications {
         let notif_widget = build_notification_row(device, notif);
