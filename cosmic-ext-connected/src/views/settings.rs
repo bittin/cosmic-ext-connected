@@ -19,7 +19,7 @@ pub fn view_settings(config: &Config) -> Element<'_, Message> {
             widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
                 .class(cosmic::theme::Button::Link)
                 .on_press(Message::ToggleSettings),
-            text::heading(fl!("settings")).class(cosmic::theme::Text::Accent),
+            text::heading(fl!("settings")),
         ]
         .spacing(sp.space_xxs)
         .align_y(Alignment::Center),
@@ -165,7 +165,7 @@ pub fn view_notification_settings(config: &Config) -> Element<'_, Message> {
     let header = applet::padded_control(
         row![
             back_btn,
-            text::heading(fl!("notification-settings")).class(cosmic::theme::Text::Accent),
+            text::heading(fl!("notification-settings")),
         ]
         .spacing(sp.space_xxs)
         .align_y(Alignment::Center),
