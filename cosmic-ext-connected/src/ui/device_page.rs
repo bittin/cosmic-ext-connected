@@ -5,10 +5,10 @@
 use crate::app::{DeviceInfo, Message};
 use crate::fl;
 use cosmic::applet;
-use cosmic::iced::widget::{column, row, svg, tooltip};
+use cosmic::iced::widget::{column, row, tooltip};
 use cosmic::iced::{Alignment, Length};
 use cosmic::widget::{self, icon, text};
-use cosmic::{theme, Element};
+use cosmic::Element;
 use kdeconnect_dbus::plugins::NotificationInfo;
 
 /// Render the device detail page.
@@ -21,18 +21,14 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
             .class(cosmic::theme::Button::Link)
             .on_press(Message::BackToList);
 
-        let device_icon = icon::from_name("io.github.nwxnw.cosmic-ext-connected-symbolic")
-            .size(48)
-            .icon()
-            .class(theme::Svg::custom(|theme| svg::Style {
-                color: Some(theme.cosmic().accent_text_color().into()),
-            }));
+        let device_icon =
+            icon::from_name("io.github.nwxnw.cosmic-ext-connected-symbolic").size(48);
 
         let mut info_row = row![
             back_btn,
             device_icon,
             column![
-                text::title4(device.name.clone()).class(cosmic::theme::Text::Accent),
+                text::title4(device.name.clone()),
                 text::caption(device.device_type.clone()),
             ]
             .spacing(sp.space_xxxs),
@@ -181,7 +177,7 @@ fn build_status_row<'a>(device: &'a DeviceInfo) -> Element<'a, Message> {
     };
     let connected_element = row![
         icon::from_name(connected_icon_name).size(16),
-        text::caption(fl!("connected")).class(cosmic::theme::Text::Accent),
+        text::caption(fl!("connected")),
     ]
     .spacing(sp.space_xxxs)
     .align_y(Alignment::Center);
@@ -194,7 +190,7 @@ fn build_status_row<'a>(device: &'a DeviceInfo) -> Element<'a, Message> {
     };
     let paired_element = row![
         icon::from_name(paired_icon_name).size(16),
-        text::caption(fl!("paired")).class(cosmic::theme::Text::Accent),
+        text::caption(fl!("paired")),
     ]
     .spacing(sp.space_xxxs)
     .align_y(Alignment::Center);
@@ -206,7 +202,7 @@ fn build_status_row<'a>(device: &'a DeviceInfo) -> Element<'a, Message> {
             if level >= 0 {
                 let battery_icon_name = get_battery_icon_name(level, charging);
                 row![
-                    text::caption(format!("{}%", level)).class(cosmic::theme::Text::Accent),
+                    text::caption(format!("{}%", level)),
                     icon::from_name(battery_icon_name).size(24),
                 ]
                 .spacing(sp.space_xxxs)

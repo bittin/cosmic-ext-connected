@@ -163,8 +163,7 @@ pub fn view_conversation_list(params: ConversationListParams<'_>) -> Element<'_,
         widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
             .class(cosmic::theme::Button::Link)
             .on_press(Message::CloseSmsView),
-        text::heading(fl!("messages-title", device = device_name))
-            .class(cosmic::theme::Text::Accent),
+        text::heading(fl!("messages-title", device = device_name)),
     ]
     .spacing(sp.space_xxs)
     .align_y(Alignment::Center);
@@ -358,7 +357,7 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
         widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
             .class(cosmic::theme::Button::Link)
             .on_press(Message::CloseConversation),
-        text::heading(display_name).class(cosmic::theme::Text::Accent),
+        text::heading(display_name),
     ]
     .spacing(sp.space_xxs)
     .align_y(Alignment::Center);
@@ -610,7 +609,7 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
             widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
                 .class(cosmic::theme::Button::Link)
                 .on_press(Message::CloseNewMessage),
-            text::heading(heading_text).class(cosmic::theme::Text::Accent),
+            text::heading(heading_text),
             widget::space::horizontal(),
         ]
         .spacing(sp.space_xxs)

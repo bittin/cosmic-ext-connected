@@ -27,8 +27,7 @@ pub fn view_media_controls(params: MediaControlsParams<'_>) -> Element<'_, Messa
             widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
                 .class(cosmic::theme::Button::Link)
                 .on_press(Message::CloseMediaView),
-            text::heading(format!("{} - {}", fl!("media"), device_name))
-                .class(cosmic::theme::Text::Accent),
+            text::heading(format!("{} - {}", fl!("media"), device_name)),
             widget::space::horizontal(),
         ]
         .spacing(sp.space_xxs)

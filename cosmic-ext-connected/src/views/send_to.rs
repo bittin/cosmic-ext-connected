@@ -32,8 +32,7 @@ pub fn view_send_to(params: SendToParams<'_>) -> Element<'_, Message> {
             widget::button::icon(icon::from_name("go-previous-symbolic"))
                 .class(cosmic::theme::Button::Link)
                 .on_press(Message::BackFromSendTo),
-            text::heading(fl!("send-to-title", device = device_type))
-                .class(cosmic::theme::Text::Accent),
+            text::heading(fl!("send-to-title", device = device_type)),
         ]
         .spacing(sp.space_xxs)
         .align_y(Alignment::Center),
