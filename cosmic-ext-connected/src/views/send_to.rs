@@ -100,10 +100,13 @@ pub fn view_send_to(params: SendToParams<'_>) -> Element<'_, Message> {
     // Share text section
     let share_text_heading = text::heading(fl!("share-text"));
 
-    let share_text_input =
+    let share_text_input = {
+        let device_id_for_submit = device_id_for_text.clone();
         widget::text_input(fl!("share-text-placeholder"), params.share_text_input)
             .on_input(Message::ShareTextInput)
-            .width(Length::Fill);
+            .on_submit(move |text| Message::ShareText(device_id_for_submit.clone(), text))
+            .width(Length::Fill)
+    };
 
     let send_text_btn = widget::button::standard(fl!("send-text"))
         .leading_icon(icon::from_name("edit-paste-symbolic").size(16))
@@ -177,10 +180,13 @@ pub fn view_share_text(params: ShareTextParams<'_>) -> Element<'_, Message> {
         .align_y(Alignment::Center),
     );
 
-    let share_text_input =
+    let share_text_input = {
+        let device_id_for_submit = device_id.clone();
         widget::text_input(fl!("share-text-placeholder"), params.share_text_input)
             .on_input(Message::ShareTextInput)
-            .width(Length::Fill);
+            .on_submit(move |text| Message::ShareText(device_id_for_submit.clone(), text))
+            .width(Length::Fill)
+    };
 
     let send_text_btn = widget::button::standard(fl!("send-text"))
         .leading_icon(icon::from_name("edit-paste-symbolic").size(16))

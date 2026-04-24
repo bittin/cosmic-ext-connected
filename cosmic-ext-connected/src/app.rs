@@ -903,13 +903,15 @@ impl Application for ConnectApplet {
                 self.share_text_input = text;
             }
             Message::ShareText(device_id, text) => {
-                if let Some(conn) = &self.dbus_connection {
-                    self.share_text_input.clear();
-                    self.status_message = Some("Sharing text...".to_string());
-                    return cosmic::app::Task::perform(
-                        share_text_async(conn.clone(), device_id, text),
-                        |result| cosmic::Action::App(Message::ShareComplete(result)),
-                    );
+                if !text.is_empty() {
+                    if let Some(conn) = &self.dbus_connection {
+                        self.share_text_input.clear();
+                        self.status_message = Some("Sharing text...".to_string());
+                        return cosmic::app::Task::perform(
+                            share_text_async(conn.clone(), device_id, text),
+                            |result| cosmic::Action::App(Message::ShareComplete(result)),
+                        );
+                    }
                 }
             }
             Message::ShareComplete(result) => match result {
