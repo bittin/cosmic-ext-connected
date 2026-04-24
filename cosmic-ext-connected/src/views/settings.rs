@@ -40,6 +40,12 @@ pub fn view_settings(config: &Config) -> Element<'_, Message> {
                 }),
         )
         .add(
+            settings::item::builder(fl!("settings-non-mobile"))
+                .toggler(config.show_non_mobile_devices, move |_| {
+                    Message::ToggleSetting(SettingKey::ShowNonMobileDevices)
+                }),
+        )
+        .add(
             settings::item::builder(fl!("settings-notifications"))
                 .toggler(config.forward_notifications, move |_| {
                     Message::ToggleSetting(SettingKey::ForwardNotifications)
@@ -151,9 +157,8 @@ pub fn view_notification_settings(config: &Config) -> Element<'_, Message> {
     .align_y(Alignment::Center)
     .width(Length::Fixed(160.0));
 
-    let timeout_section = settings::section().add(
-        settings::item::builder(fl!("settings-notification-timeout")).control(slider_control),
-    );
+    let timeout_section = settings::section()
+        .add(settings::item::builder(fl!("settings-notification-timeout")).control(slider_control));
 
     let sections = settings::view_column(vec![
         sms_section.into(),
@@ -163,12 +168,9 @@ pub fn view_notification_settings(config: &Config) -> Element<'_, Message> {
     ]);
 
     let header = applet::padded_control(
-        row![
-            back_btn,
-            text::heading(fl!("notification-settings")),
-        ]
-        .spacing(sp.space_xxs)
-        .align_y(Alignment::Center),
+        row![back_btn, text::heading(fl!("notification-settings")),]
+            .spacing(sp.space_xxs)
+            .align_y(Alignment::Center),
     );
 
     let content = widget::column::with_children(vec![header.into(), sections.into()])

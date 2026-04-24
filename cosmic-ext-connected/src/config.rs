@@ -8,12 +8,14 @@ pub const APP_ID: &str = "io.github.nwxnw.cosmic-ext-connected";
 
 /// Applet configuration stored in COSMIC's config system.
 #[derive(Debug, Clone, Serialize, Deserialize, CosmicConfigEntry, PartialEq, Eq)]
-#[version = 7]
+#[version = 8]
 pub struct Config {
     /// Show battery percentage in device list
     pub show_battery_percentage: bool,
     /// Show offline devices in device list
     pub show_offline_devices: bool,
+    /// Show unpaired non-mobile devices (desktops, laptops, TVs) in device list
+    pub show_non_mobile_devices: bool,
     /// Enable desktop notifications for phone notifications
     pub forward_notifications: bool,
     /// Number of SMS messages to load per page/request
@@ -41,6 +43,7 @@ impl Default for Config {
         Self {
             show_battery_percentage: true,
             show_offline_devices: true,
+            show_non_mobile_devices: false,
             forward_notifications: true,
             messages_per_page: 10,
             sms_notifications: true,

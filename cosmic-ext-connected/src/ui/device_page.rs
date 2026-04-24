@@ -3,6 +3,7 @@
 //! Shows detailed information and actions for a specific device.
 
 use crate::app::{DeviceInfo, Message};
+use crate::device::DeviceClass;
 use crate::fl;
 use cosmic::applet;
 use cosmic::iced::widget::{column, row};
@@ -11,25 +12,38 @@ use cosmic::widget::{self, icon, text};
 use cosmic::Element;
 use kdeconnect_dbus::plugins::NotificationInfo;
 
+/// Localized caption for a device's type, shown under the device name.
+/// Keeps the phone/tablet distinction that `DeviceClass::Mobile` collapses.
+fn device_type_label(device_type: &str) -> String {
+    match device_type {
+        "smartphone" | "phone" => fl!("device-type-phone"),
+        "tablet" => fl!("device-type-tablet"),
+        "desktop" => fl!("device-type-desktop"),
+        "laptop" => fl!("device-type-laptop"),
+        "tv" => fl!("device-type-tv"),
+        _ => fl!("device-type-unknown"),
+    }
+}
+
 /// Render the device detail page.
 pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Element<'a, Message> {
     let sp = cosmic::theme::spacing();
+    let class = DeviceClass::from_device_type(&device.device_type);
 
-    // Device info row with back button, icon, name, type, and optional ping button
+    // Device info row with back button, icon, name, and type caption
     let device_info: Element<Message> = {
         let back_btn = widget::button::icon(icon::from_name("go-previous-symbolic"))
             .class(cosmic::theme::Button::Link)
             .on_press(Message::BackToList);
 
-        let device_icon =
-            icon::from_name("io.github.nwxnw.cosmic-ext-connected-symbolic").size(48);
+        let device_icon = icon::from_name(class.icon_name()).size(48);
 
         let info_row = row![
             back_btn,
             device_icon,
             column![
                 text::title4(device.name.clone()),
-                text::caption(device.device_type.clone()),
+                text::caption(device_type_label(&device.device_type)),
             ]
             .spacing(sp.space_xxxs),
             widget::space::horizontal(),
@@ -51,37 +65,55 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
     } else if !device.is_reachable {
         Some(text::caption(fl!("device-must-be-connected")).into())
     } else if device.is_paired {
-        let device_id_for_sms = device.id.clone();
         let device_id_for_sendto = device.id.clone();
         let device_type_for_sendto = device.device_type.clone();
         let device_id_for_media = device.id.clone();
-        let device_id_for_find = device.id.clone();
         let device_id_for_unpair = device.id.clone();
+        let device_label = device_type_label(&device.device_type);
+        let mut items: Vec<Element<Message>> = Vec::new();
 
-        let sms_row = row![
-            icon::from_name("mail-message-new-symbolic").size(24),
-            text::body(fl!("sms-messages")),
-            widget::space::horizontal(),
-            icon::from_name("go-next-symbolic").size(16),
-        ]
-        .spacing(sp.space_xs)
-        .align_y(Alignment::Center);
-        let sms_item =
-            applet::menu_button(sms_row).on_press(Message::OpenSmsView(device_id_for_sms));
+        // SMS Messages - mobile only
+        if class.is_mobile() {
+            let device_id_for_sms = device.id.clone();
+            let sms_row = row![
+                icon::from_name("mail-message-new-symbolic").size(24),
+                text::body(fl!("sms-messages")),
+                widget::space::horizontal(),
+                icon::from_name("go-next-symbolic").size(16),
+            ]
+            .spacing(sp.space_xs)
+            .align_y(Alignment::Center);
+            items.push(
+                applet::menu_button(sms_row)
+                    .on_press(Message::OpenSmsView(device_id_for_sms))
+                    .into(),
+            );
+        }
 
+        // Send to / Share with - label varies by class
+        let sendto_label = if class.is_mobile() {
+            fl!("send-to", device = device_label.as_str())
+        } else {
+            fl!("share-with", device = device_label.as_str())
+        };
         let sendto_row = row![
             icon::from_name("document-send-symbolic").size(24),
-            text::body(fl!("send-to", device = device.device_type.as_str())),
+            text::body(sendto_label),
             widget::space::horizontal(),
             icon::from_name("go-next-symbolic").size(16),
         ]
         .spacing(sp.space_xs)
         .align_y(Alignment::Center);
-        let sendto_item = applet::menu_button(sendto_row).on_press(Message::OpenSendToView(
-            device_id_for_sendto,
-            device_type_for_sendto,
-        ));
+        items.push(
+            applet::menu_button(sendto_row)
+                .on_press(Message::OpenSendToView(
+                    device_id_for_sendto,
+                    device_type_for_sendto,
+                ))
+                .into(),
+        );
 
+        // Media controls - all classes
         let media_row = row![
             icon::from_name("multimedia-player-symbolic").size(24),
             text::body(fl!("media-controls")),
@@ -90,19 +122,31 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         ]
         .spacing(sp.space_xs)
         .align_y(Alignment::Center);
-        let media_item =
-            applet::menu_button(media_row).on_press(Message::OpenMediaView(device_id_for_media));
+        items.push(
+            applet::menu_button(media_row)
+                .on_press(Message::OpenMediaView(device_id_for_media))
+                .into(),
+        );
 
-        let find_row = row![
-            icon::from_name("audio-volume-high-symbolic").size(24),
-            text::body(fl!("find-phone")),
-            widget::space::horizontal(),
-        ]
-        .spacing(sp.space_xs)
-        .align_y(Alignment::Center);
-        let find_item =
-            applet::menu_button(find_row).on_press(Message::FindMyPhone(device_id_for_find));
+        // Find Phone - mobile only (no chevron, immediate action)
+        if class.is_mobile() {
+            let device_id_for_find = device.id.clone();
+            let find_row = row![
+                icon::from_name("audio-volume-high-symbolic").size(24),
+                text::body(fl!("find-phone")),
+                widget::space::horizontal(),
+            ]
+            .spacing(sp.space_xs)
+            .align_y(Alignment::Center);
+            items.push(
+                applet::menu_button(find_row)
+                    .on_press(Message::FindMyPhone(device_id_for_find))
+                    .into(),
+            );
+        }
 
+        // Divider + Unpair - always for paired+reachable, regardless of class
+        items.push(applet::padded_control(widget::divider::horizontal::default()).into());
         let unpair_row = row![
             icon::from_name("list-remove-symbolic").size(24),
             text::body(fl!("unpair")),
@@ -110,22 +154,13 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         ]
         .spacing(sp.space_xs)
         .align_y(Alignment::Center);
-        let unpair_item =
-            applet::menu_button(unpair_row).on_press(Message::Unpair(device_id_for_unpair));
+        items.push(
+            applet::menu_button(unpair_row)
+                .on_press(Message::Unpair(device_id_for_unpair))
+                .into(),
+        );
 
-        let actions_divider = applet::padded_control(widget::divider::horizontal::default());
-        Some(
-            column![
-                sms_item,
-                sendto_item,
-                media_item,
-                find_item,
-                actions_divider,
-                unpair_item,
-            ]
-            .spacing(sp.space_xxxs)
-            .into(),
-        )
+        Some(column(items).spacing(sp.space_xxxs).into())
     } else {
         let device_id_for_pair = device.id.clone();
         let pair_row = row![

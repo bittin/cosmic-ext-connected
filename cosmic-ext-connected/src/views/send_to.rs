@@ -1,12 +1,25 @@
 //! SendTo view component for sharing content with a device.
 
 use crate::app::Message;
+use crate::device::DeviceClass;
 use crate::fl;
 use cosmic::applet;
 use cosmic::iced::widget::{column, row};
 use cosmic::iced::{Alignment, Length};
 use cosmic::widget::{self, icon, text};
 use cosmic::Element;
+
+/// Localized label for the device type shown in the share heading.
+fn device_type_label(device_type: &str) -> String {
+    match device_type {
+        "smartphone" | "phone" => fl!("device-type-phone"),
+        "tablet" => fl!("device-type-tablet"),
+        "desktop" => fl!("device-type-desktop"),
+        "laptop" => fl!("device-type-laptop"),
+        "tv" => fl!("device-type-tv"),
+        _ => fl!("device-type-unknown"),
+    }
+}
 
 /// View parameters for the SendTo submenu.
 pub struct SendToParams<'a> {
@@ -25,6 +38,13 @@ pub fn view_send_to(params: SendToParams<'_>) -> Element<'_, Message> {
     let sp = cosmic::theme::spacing();
     let device_type = params.device_type;
     let device_id = params.device_id.to_string();
+    let class = DeviceClass::from_device_type(device_type);
+    let device_label = device_type_label(device_type);
+    let title = if class.is_mobile() {
+        fl!("send-to-title", device = device_label.as_str())
+    } else {
+        fl!("share-with-title", device = device_label.as_str())
+    };
 
     // Header with back button and title
     let header = applet::padded_control(
@@ -32,7 +52,7 @@ pub fn view_send_to(params: SendToParams<'_>) -> Element<'_, Message> {
             widget::button::icon(icon::from_name("go-previous-symbolic"))
                 .class(cosmic::theme::Button::Link)
                 .on_press(Message::BackFromSendTo),
-            text::heading(fl!("send-to-title", device = device_type)),
+            text::heading(title),
         ]
         .spacing(sp.space_xxs)
         .align_y(Alignment::Center),
