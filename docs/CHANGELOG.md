@@ -4,6 +4,10 @@ All notable changes to Connected will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Pair-state updates more reliable: subscribe to the correct upstream D-Bus signal names (`pairStateChanged` and daemon-level `pairingRequestsChanged`), replacing three names that did not exist in upstream KDE Connect. Pair-state was previously riding only on the `PropertiesChanged` catch-all
+- Pair-state updates no longer silently dropped during signal bursts: a follow-up refresh now fires after each signal-triggered fetch, picking up settled state even when trailing signals fall inside the 3 s debounce window
+
 ## [0.3.0] - 2026-04-14
 
 ### Changed
