@@ -191,23 +191,26 @@ pub fn dbus_signal_subscription() -> impl futures_util::Stream<Item = Message> {
                                         }
                                     }
 
-                                    // Only trigger refresh on specific device-related signals
+                                    // Only trigger refresh on specific device-related signals.
+                                    // Signal names match upstream KDE Connect
+                                    // (see core/daemon.h and core/device.h). The previous
+                                    // device-level names trustedChanged / pairingRequest /
+                                    // hasPairingRequestsChanged do not exist upstream — pair
+                                    // state is emitted as pairStateChanged(int).
                                     let is_relevant = match iface_str {
-                                        // Daemon signals for device discovery
+                                        // Daemon signals for device discovery and pair-state aggregate
                                         "org.kde.kdeconnect.daemon" => matches!(
                                             member_str,
                                             "deviceAdded"
                                                 | "deviceRemoved"
                                                 | "deviceVisibilityChanged"
                                                 | "announcedNameChanged"
+                                                | "pairingRequestsChanged"
                                         ),
-                                        // Device signals for pairing state
+                                        // Device signals for reachability and pair state
                                         "org.kde.kdeconnect.device" => matches!(
                                             member_str,
-                                            "reachableChanged"
-                                                | "trustedChanged"
-                                                | "pairingRequest"
-                                                | "hasPairingRequestsChanged"
+                                            "reachableChanged" | "pairStateChanged"
                                         ),
                                         // Battery and notification plugin signals
                                         "org.kde.kdeconnect.device.battery" => true,
