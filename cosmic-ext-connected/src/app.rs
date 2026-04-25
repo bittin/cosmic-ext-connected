@@ -437,6 +437,11 @@ pub struct ConnectApplet {
     share_text_input: String,
     /// Timestamp of last D-Bus signal refresh (for debouncing)
     last_signal_refresh: std::time::Instant,
+    /// True when at least one D-Bus signal has been dropped by the debounce
+    /// window since the last served fetch. Cleared whenever a fetch is
+    /// dispatched. Checked when `DevicesUpdated` arrives — if set, one more
+    /// fetch is kicked to pick up state changes carried by debounced signals.
+    signal_refresh_pending: bool,
 
     // SMS state
     /// Device ID currently viewing SMS for
@@ -676,6 +681,7 @@ impl Application for ConnectApplet {
             pending_share_device: None,
             share_text_input: String::new(),
             last_signal_refresh: std::time::Instant::now(),
+            signal_refresh_pending: false,
             // SMS state
             sms_device_id: None,
             sms_device_name: None,
@@ -798,6 +804,22 @@ impl Application for ConnectApplet {
                 self.error = None;
                 self.loading = false;
                 self.status_message = None; // Clear status after refresh
+
+                // If any signals were dropped while this fetch was in flight,
+                // kick one more fetch to pick up settled state. See the
+                // signal_refresh_pending field doc for rationale.
+                if self.signal_refresh_pending {
+                    self.signal_refresh_pending = false;
+                    if let Some(conn) = &self.dbus_connection {
+                        self.last_signal_refresh = std::time::Instant::now();
+                        // [topic4-baseline] temporary: trace deferred refresh
+                        topic4_log("FLUSHED-PENDING (re-fetching after debounced signals)");
+                        return cosmic::app::Task::perform(
+                            fetch_devices_async(conn.clone()),
+                            cosmic::Action::App,
+                        );
+                    }
+                }
             }
             Message::Error(err) => {
                 tracing::error!("Error: {}", err);
@@ -1014,15 +1036,18 @@ impl Application for ConnectApplet {
                 }
             }
             Message::DbusSignalReceived => {
-                // D-Bus signal received - debounce to avoid excessive refreshes
-                // Require at least 3 seconds between signal-triggered refreshes
+                // D-Bus signal received - debounce to avoid excessive refreshes.
+                // Signals dropped by the debounce window flip a pending flag;
+                // when the in-flight fetch completes, DevicesUpdated kicks one
+                // more fetch to pick up settled state from the debounced burst.
                 let now = std::time::Instant::now();
                 let elapsed = now.duration_since(self.last_signal_refresh);
                 let debounce = std::time::Duration::from_secs(SIGNAL_REFRESH_DEBOUNCE_SECS);
                 if elapsed < debounce {
-                    // [topic4-baseline] temporary: trace dropped signals
+                    self.signal_refresh_pending = true;
+                    // [topic4-baseline] temporary: trace dropped signals (now flagged pending)
                     topic4_log(&format!(
-                        "DEBOUNCED ({}ms since last, debounce={}ms)",
+                        "DEBOUNCED+PENDING ({}ms since last, debounce={}ms)",
                         elapsed.as_millis(),
                         debounce.as_millis()
                     ));
@@ -1034,6 +1059,9 @@ impl Application for ConnectApplet {
                     // [topic4-baseline] temporary: trace served signals
                     topic4_log(&format!("SERVED ({}ms since last)", elapsed.as_millis()));
                     self.last_signal_refresh = now;
+                    // The dispatched fetch will see the latest state, so any
+                    // signal-triggered staleness up to this moment is covered.
+                    self.signal_refresh_pending = false;
                     return cosmic::app::Task::perform(
                         fetch_devices_async(conn.clone()),
                         cosmic::Action::App,
