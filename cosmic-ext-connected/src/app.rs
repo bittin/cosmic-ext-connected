@@ -50,30 +50,6 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use zbus::Connection;
 
-// [topic4-baseline] temporary diagnostic logger. Writes to a host file
-// because the COSMIC panel applet does not surface tracing output via
-// journalctl. PID prefix lets us filter to a single applet instance on
-// multi-monitor setups (one process per panel). Single write_all call so
-// concurrent writers from sibling instances don't interleave at the
-// syscall boundary. Remove this fn (and all callers tagged
-// [topic4-baseline]) before this branch merges.
-fn topic4_log(msg: &str) {
-    use std::io::Write;
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let pid = std::process::id();
-    let line = format!("{} {} {}\n", pid, now_ms, msg);
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("/tmp/cosmic-ext-connected-pair-debug.log")
-    {
-        let _ = f.write_all(line.as_bytes());
-    }
-}
-
 /// Messages that drive the applet's state changes.
 #[derive(Debug, Clone)]
 #[allow(clippy::enum_variant_names)] // NewMessage variants refer to SMS, not the enum
@@ -812,8 +788,6 @@ impl Application for ConnectApplet {
                     self.signal_refresh_pending = false;
                     if let Some(conn) = &self.dbus_connection {
                         self.last_signal_refresh = std::time::Instant::now();
-                        // [topic4-baseline] temporary: trace deferred refresh
-                        topic4_log("FLUSHED-PENDING (re-fetching after debounced signals)");
                         return cosmic::app::Task::perform(
                             fetch_devices_async(conn.clone()),
                             cosmic::Action::App,
@@ -1045,19 +1019,11 @@ impl Application for ConnectApplet {
                 let debounce = std::time::Duration::from_secs(SIGNAL_REFRESH_DEBOUNCE_SECS);
                 if elapsed < debounce {
                     self.signal_refresh_pending = true;
-                    // [topic4-baseline] temporary: trace dropped signals (now flagged pending)
-                    topic4_log(&format!(
-                        "DEBOUNCED+PENDING ({}ms since last, debounce={}ms)",
-                        elapsed.as_millis(),
-                        debounce.as_millis()
-                    ));
                     return cosmic::app::Task::none();
                 }
 
                 if let Some(conn) = &self.dbus_connection {
                     tracing::debug!("D-Bus signal received, refreshing devices");
-                    // [topic4-baseline] temporary: trace served signals
-                    topic4_log(&format!("SERVED ({}ms since last)", elapsed.as_millis()));
                     self.last_signal_refresh = now;
                     // The dispatched fetch will see the latest state, so any
                     // signal-triggered staleness up to this moment is covered.

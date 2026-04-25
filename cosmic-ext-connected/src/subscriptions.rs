@@ -11,30 +11,6 @@ use kdeconnect_dbus::plugins::{parse_sms_message, MessageType};
 use kdeconnect_dbus::DeviceProxy;
 use zbus::Connection;
 
-// [topic4-baseline] temporary diagnostic logger. Writes to a host file
-// because the COSMIC panel applet does not surface tracing output via
-// journalctl. PID prefix lets us filter to a single applet instance on
-// multi-monitor setups (one process per panel). Single write_all call so
-// concurrent writers from sibling instances don't interleave at the
-// syscall boundary. Remove this fn (and all callers tagged
-// [topic4-baseline]) before this branch merges.
-fn topic4_log(msg: &str) {
-    use std::io::Write;
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let pid = std::process::id();
-    let line = format!("{} {} {}\n", pid, now_ms, msg);
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("/tmp/cosmic-ext-connected-pair-debug.log")
-    {
-        let _ = f.write_all(line.as_bytes());
-    }
-}
-
 /// State for D-Bus signal subscription.
 #[allow(clippy::large_enum_variant)]
 enum DbusSubscriptionState {
@@ -224,8 +200,6 @@ pub fn dbus_signal_subscription() -> impl futures_util::Stream<Item = Message> {
 
                                     if is_relevant {
                                         tracing::debug!("D-Bus signal: {}.{}", interface, member);
-                                        // [topic4-baseline] temporary: trace inbound relevant signals
-                                        topic4_log(&format!("signal {}.{}", interface, member));
                                         return Some((
                                             Message::DbusSignalReceived,
                                             DbusSubscriptionState::Listening { conn, stream },
