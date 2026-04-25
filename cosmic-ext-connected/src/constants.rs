@@ -11,6 +11,12 @@ pub mod dbus {
     /// Debounce interval for device refresh after D-Bus signals (seconds).
     /// Prevents rapid refreshes when multiple signals arrive in quick succession.
     pub const SIGNAL_REFRESH_DEBOUNCE_SECS: u64 = 3;
+
+    /// Tick interval for checking whether a deferred refresh is due (seconds).
+    /// When signals are dropped by the debounce window with no fetch in flight,
+    /// the pending flag has no natural wake-up. This tick polls the flag and
+    /// flushes it once the debounce window has cleared.
+    pub const PENDING_REFRESH_TICK_SECS: u64 = 1;
 }
 
 /// SMS conversation and message loading constants.

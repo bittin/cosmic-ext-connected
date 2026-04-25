@@ -2,7 +2,7 @@
 
 use crate::config::Config;
 use crate::constants::{
-    dbus::SIGNAL_REFRESH_DEBOUNCE_SECS,
+    dbus::{PENDING_REFRESH_TICK_SECS, SIGNAL_REFRESH_DEBOUNCE_SECS},
     notifications::{MAX_TIMEOUT_SECS, MIN_TIMEOUT_SECS},
     refresh,
 };
@@ -124,6 +124,9 @@ pub enum Message {
     ClearStatusMessage,
     /// D-Bus signal received indicating device state changed
     DbusSignalReceived,
+    /// Periodic tick to flush a pending refresh if the debounce window has cleared
+    /// and no fetch is in flight to consume the flag naturally.
+    CheckPendingRefresh,
 
     // Notification actions
     /// Dismiss a notification on a device
@@ -1032,6 +1035,29 @@ impl Application for ConnectApplet {
                         fetch_devices_async(conn.clone()),
                         cosmic::Action::App,
                     );
+                }
+            }
+            Message::CheckPendingRefresh => {
+                // Periodic tick: if a signal was debounced and no fetch is in
+                // flight to consume the pending flag via DevicesUpdated, flush
+                // it once the debounce window has cleared. Without this, a
+                // user accepting a pair request quickly after the request was
+                // sent could leave the UI stuck on "waiting for acceptance"
+                // until the next ambient signal (battery refresh, etc.).
+                if self.signal_refresh_pending {
+                    let now = std::time::Instant::now();
+                    let elapsed = now.duration_since(self.last_signal_refresh);
+                    let debounce = std::time::Duration::from_secs(SIGNAL_REFRESH_DEBOUNCE_SECS);
+                    if elapsed >= debounce {
+                        if let Some(conn) = &self.dbus_connection {
+                            self.signal_refresh_pending = false;
+                            self.last_signal_refresh = now;
+                            return cosmic::app::Task::perform(
+                                fetch_devices_async(conn.clone()),
+                                cosmic::Action::App,
+                            );
+                        }
+                    }
                 }
             }
 
@@ -2719,6 +2745,11 @@ impl Application for ConnectApplet {
                     }
                     Message::ConfigChanged(update.config)
                 }),
+            // Periodically check for a deferred refresh if signals were
+            // dropped by the debounce window with no fetch in flight to
+            // flush the pending flag.
+            cosmic::iced::time::every(std::time::Duration::from_secs(PENDING_REFRESH_TICK_SECS))
+                .map(|_| Message::CheckPendingRefresh),
         ];
 
         // Add media refresh timer when in media view
