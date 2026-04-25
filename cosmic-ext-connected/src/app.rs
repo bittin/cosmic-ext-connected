@@ -27,7 +27,7 @@ use crate::subscriptions::{
     sms_notification_subscription,
 };
 use crate::ui;
-use crate::views::send_to::{view_send_to, SendToParams};
+use crate::views::send_to::{view_send_to, view_share_text, SendToParams, ShareTextParams};
 use crate::views::settings::{view_notification_settings, view_settings};
 use cosmic::app::Core;
 use cosmic::iced::core::window;
@@ -78,6 +78,10 @@ pub enum Message {
     OpenSendToView(String, String), // device_id, device_type
     /// Return from SendTo view to device page
     BackFromSendTo,
+    /// Open the focused Share Text compose view (non-mobile peers)
+    OpenShareTextView(String, String), // device_id, device_type
+    /// Return from ShareText view to device page
+    BackFromShareText,
 
     // Ping actions
     /// Send a ping to a device
@@ -284,6 +288,7 @@ pub enum Message {
 pub enum SettingKey {
     ShowBatteryPercentage,
     ShowOfflineDevices,
+    ShowNonMobileDevices,
     ForwardNotifications,
     SmsNotifications,
     SmsShowContent,
@@ -344,8 +349,10 @@ pub enum ViewMode {
     DeviceList,
     /// Individual device detail page
     DevicePage,
-    /// Send to device submenu (file, clipboard, ping, text)
+    /// Send to device submenu (file, clipboard, ping, text) — mobile peers
     SendTo,
+    /// Focused Share Text compose view — non-mobile peers
+    ShareText,
     /// SMS conversation list for a device
     ConversationList,
     /// SMS message thread view
@@ -807,6 +814,16 @@ impl Application for ConnectApplet {
                 self.sendto_device_id = None;
                 self.sendto_device_type = None;
             }
+            Message::OpenShareTextView(device_id, device_type) => {
+                self.sendto_device_id = Some(device_id);
+                self.sendto_device_type = Some(device_type);
+                self.view_mode = ViewMode::ShareText;
+            }
+            Message::BackFromShareText => {
+                self.view_mode = ViewMode::DevicePage;
+                self.sendto_device_id = None;
+                self.sendto_device_type = None;
+            }
 
             // Ping
             Message::SendPing(device_id) => {
@@ -886,13 +903,15 @@ impl Application for ConnectApplet {
                 self.share_text_input = text;
             }
             Message::ShareText(device_id, text) => {
-                if let Some(conn) = &self.dbus_connection {
-                    self.share_text_input.clear();
-                    self.status_message = Some("Sharing text...".to_string());
-                    return cosmic::app::Task::perform(
-                        share_text_async(conn.clone(), device_id, text),
-                        |result| cosmic::Action::App(Message::ShareComplete(result)),
-                    );
+                if !text.is_empty() {
+                    if let Some(conn) = &self.dbus_connection {
+                        self.share_text_input.clear();
+                        self.status_message = Some("Sharing text...".to_string());
+                        return cosmic::app::Task::perform(
+                            share_text_async(conn.clone(), device_id, text),
+                            |result| cosmic::Action::App(Message::ShareComplete(result)),
+                        );
+                    }
                 }
             }
             Message::ShareComplete(result) => match result {
@@ -1066,6 +1085,9 @@ impl Application for ConnectApplet {
                     }
                     SettingKey::ShowOfflineDevices => {
                         self.config.show_offline_devices = !self.config.show_offline_devices;
+                    }
+                    SettingKey::ShowNonMobileDevices => {
+                        self.config.show_non_mobile_devices = !self.config.show_non_mobile_devices;
                     }
                     SettingKey::ForwardNotifications => {
                         self.config.forward_notifications = !self.config.forward_notifications;
@@ -2601,6 +2623,12 @@ impl Application for ConnectApplet {
                 media_loading: self.media_loading,
             }),
             ViewMode::SendTo => view_send_to(SendToParams {
+                device_type: self.sendto_device_type.as_deref().unwrap_or("device"),
+                device_id: self.sendto_device_id.as_deref().unwrap_or_default(),
+                share_text_input: &self.share_text_input,
+                status_message: self.status_message.as_deref(),
+            }),
+            ViewMode::ShareText => view_share_text(ShareTextParams {
                 device_type: self.sendto_device_type.as_deref().unwrap_or("device"),
                 device_id: self.sendto_device_id.as_deref().unwrap_or_default(),
                 share_text_input: &self.share_text_input,

@@ -58,6 +58,7 @@ notifications = Notifications
 device-must-be-connected = Device must be connected to use actions
 send-to = Send to { $device }
 send-to-title = Send to { $device }
+share-text-with-title = Share text with { $device }
 find-phone = Find Phone
 ringing-phone = Ringing phone...
 phone-ringing = Phone is ringing!
@@ -79,7 +80,16 @@ device-offline = Device is offline
 # Settings page
 settings-battery = Show battery percentage
 settings-offline = Show offline devices
+settings-non-mobile = Show non-mobile devices
 settings-notifications = Show notifications
+
+# Device type captions (shown under device name on device page)
+device-type-phone = Phone
+device-type-tablet = Tablet
+device-type-desktop = Desktop
+device-type-laptop = Laptop
+device-type-tv = TV
+device-type-unknown = Device
 
 # Notification settings sub-page
 notification-settings = Notification settings

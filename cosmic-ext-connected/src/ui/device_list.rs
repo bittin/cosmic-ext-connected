@@ -2,6 +2,7 @@
 
 use crate::app::{DeviceInfo, Message};
 use crate::config::Config;
+use crate::device::DeviceClass;
 use crate::fl;
 use cosmic::applet;
 use cosmic::iced::advanced::widget::text::Style as TextStyle;
@@ -36,6 +37,12 @@ pub fn view<'a>(
     let filtered_devices: Vec<&DeviceInfo> = devices
         .iter()
         .filter(|d| {
+            let class = DeviceClass::from_device_type(&d.device_type);
+            // Hide unpaired non-mobile devices unless explicitly enabled.
+            // Paired non-mobile devices always show (same rule as mobile).
+            if !d.is_paired && !class.is_mobile() && !config.show_non_mobile_devices {
+                return false;
+            }
             // Always show reachable devices
             if d.is_reachable {
                 return true;
@@ -111,8 +118,9 @@ fn device_row<'a>(device: &'a DeviceInfo, config: &'a Config) -> Element<'a, Mes
         text::caption(status_text).into()
     };
 
+    let class = DeviceClass::from_device_type(&device.device_type);
     let mut row_content = row![
-        icon::from_name("io.github.nwxnw.cosmic-ext-connected-symbolic").size(24),
+        icon::from_name(class.icon_name()).size(24),
         column![text::body(device.name.clone()), status_widget,].spacing(2),
     ]
     .spacing(sp.space_xs)
