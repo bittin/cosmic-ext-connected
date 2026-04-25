@@ -50,6 +50,25 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use zbus::Connection;
 
+// [topic4-baseline] temporary diagnostic logger. Writes to a host file
+// because the COSMIC panel applet does not surface tracing output via
+// journalctl. Remove this fn (and all callers tagged [topic4-baseline])
+// before this branch merges.
+fn topic4_log(msg: &str) {
+    use std::io::Write;
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/cosmic-ext-connected-pair-debug.log")
+    {
+        let _ = writeln!(f, "{} {}", now_ms, msg);
+    }
+}
+
 /// Messages that drive the applet's state changes.
 #[derive(Debug, Clone)]
 #[allow(clippy::enum_variant_names)] // NewMessage variants refer to SMS, not the enum
@@ -997,21 +1016,18 @@ impl Application for ConnectApplet {
                 let debounce = std::time::Duration::from_secs(SIGNAL_REFRESH_DEBOUNCE_SECS);
                 if elapsed < debounce {
                     // [topic4-baseline] temporary: trace dropped signals
-                    tracing::info!(
-                        "[topic4-baseline] DEBOUNCED ({}ms since last, debounce={}ms)",
+                    topic4_log(&format!(
+                        "DEBOUNCED ({}ms since last, debounce={}ms)",
                         elapsed.as_millis(),
                         debounce.as_millis()
-                    );
+                    ));
                     return cosmic::app::Task::none();
                 }
 
                 if let Some(conn) = &self.dbus_connection {
                     tracing::debug!("D-Bus signal received, refreshing devices");
                     // [topic4-baseline] temporary: trace served signals
-                    tracing::info!(
-                        "[topic4-baseline] SERVED ({}ms since last)",
-                        elapsed.as_millis()
-                    );
+                    topic4_log(&format!("SERVED ({}ms since last)", elapsed.as_millis()));
                     self.last_signal_refresh = now;
                     return cosmic::app::Task::perform(
                         fetch_devices_async(conn.clone()),
