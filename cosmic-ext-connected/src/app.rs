@@ -993,14 +993,25 @@ impl Application for ConnectApplet {
                 // D-Bus signal received - debounce to avoid excessive refreshes
                 // Require at least 3 seconds between signal-triggered refreshes
                 let now = std::time::Instant::now();
-                if now.duration_since(self.last_signal_refresh)
-                    < std::time::Duration::from_secs(SIGNAL_REFRESH_DEBOUNCE_SECS)
-                {
+                let elapsed = now.duration_since(self.last_signal_refresh);
+                let debounce = std::time::Duration::from_secs(SIGNAL_REFRESH_DEBOUNCE_SECS);
+                if elapsed < debounce {
+                    // [topic4-baseline] temporary: trace dropped signals
+                    tracing::info!(
+                        "[topic4-baseline] DEBOUNCED ({}ms since last, debounce={}ms)",
+                        elapsed.as_millis(),
+                        debounce.as_millis()
+                    );
                     return cosmic::app::Task::none();
                 }
 
                 if let Some(conn) = &self.dbus_connection {
                     tracing::debug!("D-Bus signal received, refreshing devices");
+                    // [topic4-baseline] temporary: trace served signals
+                    tracing::info!(
+                        "[topic4-baseline] SERVED ({}ms since last)",
+                        elapsed.as_millis()
+                    );
                     self.last_signal_refresh = now;
                     return cosmic::app::Task::perform(
                         fetch_devices_async(conn.clone()),

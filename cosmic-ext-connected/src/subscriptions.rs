@@ -197,6 +197,12 @@ pub fn dbus_signal_subscription() -> impl futures_util::Stream<Item = Message> {
 
                                     if is_relevant {
                                         tracing::debug!("D-Bus signal: {}.{}", interface, member);
+                                        // [topic4-baseline] temporary: trace inbound relevant signals
+                                        tracing::info!(
+                                            "[topic4-baseline] signal {}.{}",
+                                            interface,
+                                            member
+                                        );
                                         return Some((
                                             Message::DbusSignalReceived,
                                             DbusSubscriptionState::Listening { conn, stream },
