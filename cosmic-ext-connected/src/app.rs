@@ -1821,9 +1821,25 @@ impl Application for ConnectApplet {
                     self.message_sync_active = true;
                 }
 
-                // Scroll to bottom when a sent message is confirmed;
-                // otherwise defer scroll to ConversationStoreLoaded
+                // Scroll to bottom when a sent message is confirmed.
                 if confirmed_send {
+                    return scrollable::snap_to(
+                        widget::Id::new("message-thread"),
+                        scrollable::RelativeOffset::END.into(),
+                    );
+                }
+                // While the initial load is in flight, keep the newest message
+                // in view as messages stream in. Necessary because the daemon's
+                // worker emits `conversationLoaded` only when it actually
+                // fetched fresh phone data (see daemon's
+                // `addMessages()` → `conversationLoaded`); for cached-store
+                // hits the worker just emits per-message signals and finishes
+                // silently, so `ConversationStoreLoaded` and
+                // `ConversationLoadComplete` never fire and the scroll stays
+                // pinned at the top of an oldest-first list. Bounded by
+                // `initial_load_complete` so we don't yank a user reading
+                // older messages when a new SMS arrives later.
+                if !self.initial_load_complete {
                     return scrollable::snap_to(
                         widget::Id::new("message-thread"),
                         scrollable::RelativeOffset::END.into(),

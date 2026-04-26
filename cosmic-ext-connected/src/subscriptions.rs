@@ -2,7 +2,9 @@
 
 use crate::app::Message;
 use crate::constants::dbus::RETRY_DELAY_SECS;
-use crate::constants::sms::{MESSAGE_SUBSCRIPTION_TIMEOUT_SECS, PHONE_RESPONSE_TIMEOUT_MS};
+use crate::constants::sms::{
+    CONVERSATION_RETRY_WAIT_MS, MESSAGE_SUBSCRIPTION_TIMEOUT_SECS, PHONE_RESPONSE_TIMEOUT_MS,
+};
 use crate::notifications::{
     should_show_call_notification, should_show_file_notification, should_show_sms_notification,
 };
@@ -10,6 +12,32 @@ use futures_util::StreamExt;
 use kdeconnect_dbus::plugins::{parse_sms_message, MessageType};
 use kdeconnect_dbus::DeviceProxy;
 use zbus::Connection;
+
+/// Re-issue `requestConversation` on the Conversations interface as part of the
+/// first-open truncation recovery path. Offset semantics match KDE Connect's
+/// `ConversationModel::requestMoreMessages`: `start = numKnown`,
+/// `end = numKnown + howMany`. The daemon worker treats `[start, end)` as
+/// indices into the local store sorted newest-first, so this asks for the
+/// older messages we haven't seen yet.
+async fn fire_retry_request(
+    conn: &Connection,
+    device_id: &str,
+    thread_id: i64,
+    start: i32,
+    end: i32,
+) -> Result<(), String> {
+    let device_path = format!("{}/devices/{}", kdeconnect_dbus::BASE_PATH, device_id);
+    let proxy = kdeconnect_dbus::plugins::ConversationsProxy::builder(conn)
+        .path(device_path.as_str())
+        .map_err(|e| format!("path: {}", e))?
+        .build()
+        .await
+        .map_err(|e| format!("build: {}", e))?;
+    proxy
+        .request_conversation(thread_id, start, end)
+        .await
+        .map_err(|e| format!("call: {}", e))
+}
 
 /// State for D-Bus signal subscription.
 #[allow(clippy::large_enum_variant)]
@@ -561,11 +589,11 @@ enum ConversationMessageState {
         messages_per_page: u32,
     },
     Listening {
-        #[allow(dead_code)]
         conn: Connection,
         stream: zbus::MessageStream,
         thread_id: i64,
         device_id: String,
+        messages_per_page: u32,
         /// Set when `conversationLoaded` arrives; enables phone_deadline.
         local_store_done: bool,
         /// Total message count from `conversationLoaded` signal.
@@ -577,6 +605,12 @@ enum ConversationMessageState {
         /// Whether `ConversationLoadComplete` has been emitted. Once true, the subscription
         /// continues silently with a heartbeat sleep until iced drops it.
         load_complete_emitted: bool,
+        /// Count of `conversationUpdated` signals forwarded for this thread. Used to
+        /// detect the first-open truncation case (daemon's local store had only a
+        /// single message when the Conversations worker ran) at phone_deadline expiry.
+        received_message_count: usize,
+        /// Whether the one-shot Direction A retry has fired. Bounds retries to one.
+        retry_attempted: bool,
     },
     /// Terminal state - subscription is complete
     Done,
@@ -819,10 +853,13 @@ pub fn conversation_message_subscription(
                             stream,
                             thread_id,
                             device_id,
+                            messages_per_page,
                             local_store_done: false,
                             total_message_count: None,
                             phone_deadline: None,
                             load_complete_emitted: false,
+                            received_message_count: 0,
+                            retry_attempted: false,
                         },
                     ))
                 }
@@ -831,10 +868,13 @@ pub fn conversation_message_subscription(
                     mut stream,
                     thread_id,
                     device_id,
+                    messages_per_page,
                     mut local_store_done,
                     mut total_message_count,
                     mut phone_deadline,
                     mut load_complete_emitted,
+                    mut received_message_count,
+                    mut retry_attempted,
                 } => {
                     // Two-phase loading, then long-lived listening:
                     //
@@ -881,41 +921,109 @@ pub fn conversation_message_subscription(
                                         stream,
                                         thread_id,
                                         device_id,
+                                        messages_per_page,
                                         local_store_done,
                                         total_message_count,
                                         phone_deadline,
                                         load_complete_emitted,
+                                        received_message_count,
+                                        retry_attempted,
                                     },
                                 ));
                             }
                         }
 
-                        // Check phone deadline (Phase 2 → Phase 3 transition)
+                        // Check phone deadline (Phase 2 → Phase 3 transition).
+                        //
+                        // Direction A retry: if the phone deadline expires after the
+                        // local store delivered at most one message, the daemon's
+                        // first-open Conversations worker likely finished before the
+                        // phone-supplied messages were written to the local store
+                        // (see docs/SMS.md, "first-open truncation"). Re-issue
+                        // requestConversation on the Conversations interface — by now
+                        // the local store contains the phone data — and let those
+                        // signals stream through normally. Bound to one attempt.
                         if !load_complete_emitted {
                             if let Some(pd) = phone_deadline {
                                 if now >= pd {
-                                    tracing::info!(
-                                        "Subscription: phone deadline reached for thread {}, \
-                                         signaling load complete (subscription continues)",
-                                        thread_id
-                                    );
-                                    load_complete_emitted = true;
-                                    return Some((
-                                        Message::ConversationLoadComplete {
+                                    if !retry_attempted && received_message_count <= 1 {
+                                        tracing::info!(
+                                            "Subscription: thread {} truncation suspected \
+                                             ({} message(s) after phone deadline), retrying \
+                                             Conversations interface read (fallback path)",
                                             thread_id,
-                                            total_count: total_message_count.unwrap_or(0),
-                                        },
-                                        ConversationMessageState::Listening {
-                                            conn,
-                                            stream,
+                                            received_message_count
+                                        );
+                                        let start = received_message_count as i32;
+                                        let end = start + messages_per_page as i32;
+                                        match fire_retry_request(
+                                            &conn,
+                                            &device_id,
                                             thread_id,
-                                            device_id,
-                                            local_store_done,
-                                            total_message_count,
-                                            phone_deadline,
-                                            load_complete_emitted,
-                                        },
-                                    ));
+                                            start,
+                                            end,
+                                        )
+                                        .await
+                                        {
+                                            Ok(()) => {
+                                                tracing::info!(
+                                                    "Retry request_conversation fired for thread {}",
+                                                    thread_id
+                                                );
+                                            }
+                                            Err(e) => {
+                                                tracing::warn!(
+                                                    "Retry request_conversation failed for thread {}: {}",
+                                                    thread_id,
+                                                    e
+                                                );
+                                            }
+                                        }
+                                        retry_attempted = true;
+                                        phone_deadline = Some(
+                                            tokio::time::Instant::now()
+                                                + std::time::Duration::from_millis(
+                                                    CONVERSATION_RETRY_WAIT_MS,
+                                                ),
+                                        );
+                                        // Fall through to the select! loop so retry
+                                        // signals are received as they arrive.
+                                    } else {
+                                        if retry_attempted {
+                                            tracing::info!(
+                                                "Subscription: thread {} retry settled with {} \
+                                                 message(s); signaling load complete",
+                                                thread_id,
+                                                received_message_count
+                                            );
+                                        } else {
+                                            tracing::info!(
+                                                "Subscription: phone deadline reached for thread {}, \
+                                                 signaling load complete (subscription continues)",
+                                                thread_id
+                                            );
+                                        }
+                                        load_complete_emitted = true;
+                                        return Some((
+                                            Message::ConversationLoadComplete {
+                                                thread_id,
+                                                total_count: total_message_count.unwrap_or(0),
+                                            },
+                                            ConversationMessageState::Listening {
+                                                conn,
+                                                stream,
+                                                thread_id,
+                                                device_id,
+                                                messages_per_page,
+                                                local_store_done,
+                                                total_message_count,
+                                                phone_deadline,
+                                                load_complete_emitted,
+                                                received_message_count,
+                                                retry_attempted,
+                                            },
+                                        ));
+                                    }
                                 }
                             }
                         }
@@ -964,6 +1072,9 @@ pub fn conversation_message_subscription(
                                                                     sms_msg.uid,
                                                                     thread_id
                                                                 );
+                                                                received_message_count =
+                                                                    received_message_count
+                                                                        .saturating_add(1);
                                                                 return Some((
                                                                     Message::ConversationMessageReceived {
                                                                         thread_id,
@@ -974,10 +1085,13 @@ pub fn conversation_message_subscription(
                                                                         stream,
                                                                         thread_id,
                                                                         device_id,
+                                                                        messages_per_page,
                                                                         local_store_done,
                                                                         total_message_count,
                                                                         phone_deadline,
                                                                         load_complete_emitted,
+                                                                        received_message_count,
+                                                                        retry_attempted,
                                                                     },
                                                                 ));
                                                             }
@@ -994,18 +1108,91 @@ pub fn conversation_message_subscription(
                                                         body.deserialize::<(i64, u64)>()
                                                     {
                                                         if conv_id == thread_id {
-                                                            tracing::info!(
-                                                                "Subscription: conversationLoaded for thread {}, \
-                                                                 {} messages in store. Waiting up to {:?} for phone...",
-                                                                thread_id,
-                                                                message_count,
-                                                                phone_wait
-                                                            );
+                                                            let was_already_done =
+                                                                local_store_done;
                                                             local_store_done = true;
-                                                            total_message_count = Some(message_count);
-                                                            phone_deadline = Some(
-                                                                tokio::time::Instant::now() + phone_wait,
-                                                            );
+                                                            total_message_count =
+                                                                Some(message_count);
+                                                            if retry_attempted {
+                                                                // Retry's own conversationLoaded.
+                                                                // Don't extend phone_deadline — its
+                                                                // CONVERSATION_RETRY_WAIT_MS deadline
+                                                                // is already running.
+                                                                tracing::info!(
+                                                                    "Subscription: retry conversationLoaded for thread {}, \
+                                                                     {} messages in store",
+                                                                    thread_id,
+                                                                    message_count
+                                                                );
+                                                            } else if was_already_done
+                                                                && (message_count as usize)
+                                                                    > received_message_count
+                                                                && received_message_count
+                                                                    < messages_per_page as usize
+                                                            {
+                                                                // Option 1 trigger: the daemon
+                                                                // re-emitted conversationLoaded
+                                                                // (its `addMessages()` told us the
+                                                                // local store grew) but we got
+                                                                // fewer per-message signals than
+                                                                // the store now reports, and we
+                                                                // haven't filled a page yet — i.e.
+                                                                // a deficit in our requested
+                                                                // initial range. Covers both the
+                                                                // original "received only 1 of N"
+                                                                // truncation and the off-by-one
+                                                                // case (e.g. store=4, received=3)
+                                                                // observed for some short threads.
+                                                                // The page-size guard avoids
+                                                                // triggering on natural scroll
+                                                                // pagination boundaries.
+                                                                tracing::info!(
+                                                                    "Subscription: thread {} duplicate conversationLoaded \
+                                                                     (store={}, received={}), retrying Conversations \
+                                                                     interface read (Option 1 path)",
+                                                                    thread_id,
+                                                                    message_count,
+                                                                    received_message_count
+                                                                );
+                                                                let start =
+                                                                    received_message_count as i32;
+                                                                let end = start
+                                                                    + messages_per_page as i32;
+                                                                if let Err(e) = fire_retry_request(
+                                                                    &conn,
+                                                                    &device_id,
+                                                                    thread_id,
+                                                                    start,
+                                                                    end,
+                                                                )
+                                                                .await
+                                                                {
+                                                                    tracing::warn!(
+                                                                        "Retry request_conversation failed for thread {}: {}",
+                                                                        thread_id,
+                                                                        e
+                                                                    );
+                                                                }
+                                                                retry_attempted = true;
+                                                                phone_deadline = Some(
+                                                                    tokio::time::Instant::now()
+                                                                        + std::time::Duration::from_millis(
+                                                                            CONVERSATION_RETRY_WAIT_MS,
+                                                                        ),
+                                                                );
+                                                            } else {
+                                                                tracing::info!(
+                                                                    "Subscription: conversationLoaded for thread {}, \
+                                                                     {} messages in store. Waiting up to {:?} for phone...",
+                                                                    thread_id,
+                                                                    message_count,
+                                                                    phone_wait
+                                                                );
+                                                                phone_deadline = Some(
+                                                                    tokio::time::Instant::now()
+                                                                        + phone_wait,
+                                                                );
+                                                            }
                                                             return Some((
                                                                 Message::ConversationStoreLoaded {
                                                                     thread_id,
@@ -1016,10 +1203,13 @@ pub fn conversation_message_subscription(
                                                                     stream,
                                                                     thread_id,
                                                                     device_id,
+                                                                    messages_per_page,
                                                                     local_store_done,
                                                                     total_message_count,
                                                                     phone_deadline,
                                                                     load_complete_emitted,
+                                                                    received_message_count,
+                                                                    retry_attempted,
                                                                 },
                                                             ));
                                                         }
