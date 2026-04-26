@@ -52,6 +52,12 @@ pub mod sms {
     /// is emitted (initial load done) but the subscription continues listening.
     pub const PHONE_RESPONSE_TIMEOUT_MS: u64 = 8000;
 
+    /// How long to wait for the retried Conversations-interface call to settle when
+    /// the first-open phone-deadline expires with at most one local-store message
+    /// (milliseconds). The daemon writes phone-supplied messages to the local store
+    /// asynchronously, so a second read often returns the full thread.
+    pub const CONVERSATION_RETRY_WAIT_MS: u64 = 4000;
+
     /// How long to show the sync indicator on cold start (milliseconds).
     /// This is the hard ceiling for a single bootstrap attempt while loading
     /// the conversation list on cold start.
