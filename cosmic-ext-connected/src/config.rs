@@ -8,7 +8,7 @@ pub const APP_ID: &str = "io.github.nwxnw.cosmic-ext-connected";
 
 /// Applet configuration stored in COSMIC's config system.
 #[derive(Debug, Clone, Serialize, Deserialize, CosmicConfigEntry, PartialEq, Eq)]
-#[version = 8]
+#[version = 7]
 pub struct Config {
     /// Show battery percentage in device list
     pub show_battery_percentage: bool,
