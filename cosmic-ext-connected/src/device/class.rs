@@ -5,8 +5,8 @@
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeviceClass {
-    /// Phones and tablets.
-    Mobile,
+    Phone,
+    Tablet,
     Desktop,
     Laptop,
     Tv,
@@ -21,7 +21,8 @@ impl DeviceClass {
     /// `deviceinfo.h::DeviceType::FromString`).
     pub fn from_device_type(device_type: &str) -> Self {
         match device_type {
-            "smartphone" | "phone" | "tablet" => Self::Mobile,
+            "smartphone" | "phone" => Self::Phone,
+            "tablet" => Self::Tablet,
             "desktop" => Self::Desktop,
             "laptop" => Self::Laptop,
             "tv" => Self::Tv,
@@ -31,13 +32,15 @@ impl DeviceClass {
 
     /// Freedesktop icon name for this device class.
     ///
-    /// Mobile keeps the applet's custom phone icon so the device list stays
-    /// visually consistent with the panel icon. Desktop and Laptop collapse to
+    /// Phone (and Unknown) use the applet's custom phone icon so the device
+    /// list stays visually consistent with the panel icon. Tablet uses the
+    /// freedesktop `tablet-symbolic` slab. Desktop and Laptop collapse to
     /// `computer-symbolic` — KDE Connect's own Linux daemon doesn't reliably
     /// distinguish the two, and the Cosmic theme provides a single icon.
     pub fn icon_name(self) -> &'static str {
         match self {
-            Self::Mobile | Self::Unknown => "io.github.nwxnw.cosmic-ext-connected-symbolic",
+            Self::Phone | Self::Unknown => "io.github.nwxnw.cosmic-ext-connected-symbolic",
+            Self::Tablet => "tablet-symbolic",
             Self::Desktop | Self::Laptop => "computer-symbolic",
             Self::Tv => "tv-symbolic",
         }
@@ -45,6 +48,6 @@ impl DeviceClass {
 
     /// Whether this class is a phone or tablet.
     pub fn is_mobile(self) -> bool {
-        matches!(self, Self::Mobile)
+        matches!(self, Self::Phone | Self::Tablet)
     }
 }

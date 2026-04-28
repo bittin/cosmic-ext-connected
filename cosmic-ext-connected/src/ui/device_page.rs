@@ -13,7 +13,6 @@ use cosmic::Element;
 use kdeconnect_dbus::plugins::NotificationInfo;
 
 /// Localized caption for a device's type, shown under the device name.
-/// Keeps the phone/tablet distinction that `DeviceClass::Mobile` collapses.
 fn device_type_label(device_type: &str) -> String {
     match device_type {
         "smartphone" | "phone" => fl!("device-type-phone"),
