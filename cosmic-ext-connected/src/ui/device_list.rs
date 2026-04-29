@@ -24,10 +24,22 @@ pub fn view<'a>(
         row![
             text::heading(fl!("devices")),
             widget::space::horizontal(),
-            widget::button::icon(icon::from_name("view-refresh-symbolic"))
-                .on_press(Message::RefreshDevices),
-            widget::button::icon(icon::from_name("emblem-system-symbolic"))
-                .on_press(Message::ToggleSettings),
+            widget::tooltip(
+                widget::button::icon(icon::from_name("view-refresh-symbolic"))
+                    .on_press(Message::RefreshDevices),
+                text::caption(fl!("refresh")),
+                widget::tooltip::Position::Bottom,
+            )
+            .gap(sp.space_xxxs)
+            .padding(sp.space_xxs),
+            widget::tooltip(
+                widget::button::icon(icon::from_name("emblem-system-symbolic"))
+                    .on_press(Message::ToggleSettings),
+                text::caption(fl!("settings")),
+                widget::tooltip::Position::Bottom,
+            )
+            .gap(sp.space_xxxs)
+            .padding(sp.space_xxs),
         ]
         .spacing(sp.space_xxxs)
         .align_y(Alignment::Center),

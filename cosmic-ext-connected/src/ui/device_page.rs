@@ -475,8 +475,14 @@ fn build_notification_row<'a>(
         let device_id = device.id.clone();
         let notif_id = notif.id.clone();
         notif_row = notif_row.push(
-            widget::button::icon(icon::from_name("window-close-symbolic"))
-                .on_press(Message::DismissNotification(device_id, notif_id)),
+            widget::tooltip(
+                widget::button::icon(icon::from_name("window-close-symbolic"))
+                    .on_press(Message::DismissNotification(device_id, notif_id)),
+                text::caption(fl!("dismiss")),
+                widget::tooltip::Position::Bottom,
+            )
+            .gap(sp.space_xxxs)
+            .padding(sp.space_xxs),
         );
     }
 
