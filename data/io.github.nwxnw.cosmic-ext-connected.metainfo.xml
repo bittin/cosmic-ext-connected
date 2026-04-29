@@ -55,6 +55,19 @@
   </screenshots>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.4.0" date="YYYY-MM-DD">
+      <description>
+        <p>Desktop and laptop peer support, pair-state reliability, SMS first-open truncation fix, and UI tightening.</p>
+        <ul>
+          <li>Added desktop and laptop peer support with inline share primitives and Enter-to-send on share-text inputs</li>
+          <li>Improved pair-state reliability via correct upstream D-Bus signal names and deferred-refresh handling for bursty signals</li>
+          <li>Fixed SMS thread truncation on first open with daemon-driven retry</li>
+          <li>Fixed message thread not auto-scrolling to newest message on open for cached threads</li>
+          <li>Added hover tooltips on the refresh, settings, and notification-dismiss icon buttons</li>
+          <li>Tightened device page layout: Pair/Unpair moved to the actions list, notification count rendered as a badge, accent color restricted to actionable UI</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.3.0" date="2026-04-14">
       <description>
         <p>Native file chooser, SMS reliability improvements, Flatpak icon fix, and conversation list bootstrap hardening.</p>
