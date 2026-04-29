@@ -8,16 +8,16 @@ All notable changes to Connected will be documented in this file.
 - Pair-state updates more reliable: subscribe to the correct upstream D-Bus signal names (`pairStateChanged` and  daemon-level `pairingRequestsChanged`), replacing three names that did not exist in upstream KDE Connect.         Pair-state was previously riding only on the `PropertiesChanged` catch-all
 - Pair-state updates no longer silently dropped during signal bursts: a follow-up refresh now fires after each signal-triggered fetch, picking up settled state even when trailing signals fall inside the 3 s debounce window
 - Pair acceptance picked up promptly when accepting on the phone right after sending the request from Connected: a 1 s tick now flushes any deferred refresh once the debounce window clears, so the UI no longer hangs on "Waiting for device to accept" until the next ambient signal
+- SMS thread truncation on first open: re-issues requestConversation when the daemon re-emits conversationLoaded with more messages than we received, and as a fallback on phone-response timeout.
+- Message thread auto-scrolls to the newest message on open even for cached threads where the daemon doesn't emit   conversationLoaded.
 
 ### Added
 - Desktop / laptop / TV peer support; "Show non-mobile devices" setting; inline share primitives on non-mobile device page; Enter-to-send on share-text inputs.
-
+- Hover tooltips on the refresh, settings, and notification-dismiss icon buttons
 ### Changed
 - Accent color restricted to actionable UI; tightened device page layout; Pair/Unpair moved into the actions list; notification count rendered as a badge.
 
-### Fixed
-- SMS thread truncation on first open: re-issues requestConversation when the daemon re-emits conversationLoaded with more messages than we received, and as a fallback on phone-response timeout.
-- Message thread auto-scrolls to the newest message on open even for cached threads where the daemon doesn't emit   conversationLoaded.
+
 
 ## [0.3.0] - 2026-04-14
 
