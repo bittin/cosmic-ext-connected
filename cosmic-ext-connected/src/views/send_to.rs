@@ -186,6 +186,7 @@ pub fn view_share_text(params: ShareTextParams<'_>) -> Element<'_, Message> {
             .on_input(Message::ShareTextInput)
             .on_submit(move |text| Message::ShareText(device_id_for_submit.clone(), text))
             .width(Length::Fill)
+            .id(widget::Id::new("share-text-input"))
     };
 
     let send_text_btn = widget::button::standard(fl!("send-text"))

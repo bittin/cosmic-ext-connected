@@ -841,6 +841,7 @@ impl Application for ConnectApplet {
                 self.sendto_device_id = Some(device_id);
                 self.sendto_device_type = Some(device_type);
                 self.view_mode = ViewMode::ShareText;
+                return widget::text_input::focus(widget::Id::new("share-text-input"));
             }
             Message::BackFromShareText => {
                 self.view_mode = ViewMode::DevicePage;
