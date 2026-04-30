@@ -59,6 +59,7 @@ notifications = Aviseringar
 device-must-be-connected = Enheten måste vara ansluten för att använda åtgärder
 send-to = Skicka till { $device }
 send-to-title = Skicka till { $device }
+share-text-with-title = Dela text med { $device }
 find-phone = Hitta telefon
 ringing-phone = Ringer telefon...
 phone-ringing = Telefon ringer!
@@ -84,6 +85,18 @@ settings-offline = Visa offline enheter
 settings-offline-desc = Visa parade enheter som inte är anslutna för närvarande
 settings-notifications = Visa aviseringar
 settings-notifications-desc = Visa aviseringar från anslutna enheter
+notification-settings = Aviseringsinställningar
+settings-non-mobile = Visa icke-mobila enheter
+settings-sms-section = SMS meddelanden
+settings-call-section = Samtal
+settings-file-section = Filöverföringar
+
+device-type-phone = Telefon
+device-type-tablet = Surfplatta
+device-type-desktop = Stationär dator
+device-type-laptop = Bärbar dator
+device-type-tv = TV
+device-type-unknown = Enhet
 
 # Inställningar för SMS-aviseringar
 settings-sms-notifications = SMS-aviseringar
@@ -144,11 +157,12 @@ hold-to-copy = Håll nedtryckt för att kopiera
 
 # Nytt meddelande
 new-message = Nytt meddelande
+new-group-message = Nytt gruppmeddelande
 to = Till:
 recipient-placeholder = Skriv ett namn för att söka i kontakter eller ange ett telefonnummer
 type-message = Skriv ett meddelande...
 send = Skicka
-sending = Skickar...
+sms-sending = Skickar...
 
 # Mediekontroller
 loading-media = Laddar medieinformation...
