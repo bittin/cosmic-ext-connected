@@ -9,4 +9,5 @@ pub mod views;
 pub use conversation_subscription::*;
 pub use fetch::*;
 pub use send::*;
+pub use store::*;
 pub use views::*;
