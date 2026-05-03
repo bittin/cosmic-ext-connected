@@ -12,8 +12,11 @@ use crate::app::{show_and_auto_close, DeviceInfo, LoadingPhase, Message, SmsLoad
 use crate::config::Config;
 use crate::fl;
 use crate::sms::{
-    fetch_older_messages_async, request_attachment_async, send_new_sms_async, send_sms_async,
+    conversation_list_subscription, fetch_older_messages_async, request_attachment_async,
+    send_new_sms_async, send_sms_async, view_conversation_list, view_message_thread,
+    view_new_message, ConversationListParams, MessageThreadParams, NewMessageParams,
 };
+use crate::subscriptions::conversation_message_subscription;
 use cosmic::iced::widget::scrollable;
 use cosmic::iced::{clipboard, Subscription};
 use cosmic::widget;
@@ -1263,12 +1266,103 @@ impl SmsConversationStore {
         }
     }
 
-    pub fn view(&self, _mode: SmsViewMode) -> Element<'_, Message> {
-        unimplemented!()
+    /// Render the active SMS sub-view.
+    ///
+    /// `status_message` is owned by the parent app and threaded through for
+    /// the message-thread view's send-confirmation/error banner.
+    pub fn view<'a>(
+        &'a self,
+        mode: SmsViewMode,
+        status_message: Option<&'a str>,
+    ) -> Element<'a, Message> {
+        match mode {
+            SmsViewMode::ConversationList => view_conversation_list(ConversationListParams {
+                device_name: self.sms_device_name.as_deref(),
+                conversations: &self.conversations,
+                conversations_displayed: self.conversations_displayed,
+                contacts: &self.contacts,
+                loading_state: &self.sms_loading_state,
+                sync_active: self.conversation_sync_active,
+            }),
+            SmsViewMode::MessageThread => {
+                let thread = view_message_thread(MessageThreadParams {
+                    device_id: self.sms_device_id.as_deref().unwrap_or(""),
+                    device_name: self.sms_device_name.as_deref().unwrap_or(""),
+                    thread_addresses: self.current_thread_addresses.as_deref(),
+                    messages: &self.messages,
+                    contacts: &self.contacts,
+                    loading_state: &self.sms_loading_state,
+                    sms_compose_text: &self.sms_compose_text,
+                    sms_sending: self.sms_sending,
+                    sync_active: self.message_sync_active,
+                    pressed_bubble_uid: self.pressed_bubble_uid,
+                    show_copy_hint: self.show_copy_hint,
+                    status_message,
+                });
+                // popup_container uses Shrink height internally, which sets a
+                // compression flag on iced's layout limits. Under compression,
+                // the flex layout processes all children in document order and a
+                // scrollable's intrinsic content size consumes all available
+                // height, leaving 0 for the compose row below it. A Fixed height
+                // wrapper is the only way to clear that flag (Fill doesn't);
+                // the value is capped to popup_container's 1000px max.
+                widget::container(thread)
+                    .height(cosmic::iced::Length::Fixed(10_000.0))
+                    .width(cosmic::iced::Length::Fill)
+                    .into()
+            }
+            SmsViewMode::NewMessage => view_new_message(NewMessageParams {
+                recipients: &self.new_message_recipients,
+                recipient_input: &self.new_message_recipient_input,
+                body: &self.new_message_body,
+                sending: self.new_message_sending,
+                contact_suggestions: &self.contact_suggestions,
+            }),
+        }
     }
 
-    pub fn subscriptions(&self, _config: &Config) -> Vec<Subscription<Message>> {
-        unimplemented!()
+    /// SMS-state-driven subscriptions: conversation-list refresh and the
+    /// per-thread message subscription. The unconditional SMS/call notification
+    /// subscriptions stay in `app.rs::subscription()` because they're gated on
+    /// device reachability + config, not store state.
+    pub fn subscriptions(&self, config: &Config) -> Vec<Subscription<Message>> {
+        let mut subs: Vec<Subscription<Message>> = Vec::new();
+
+        // Conversation list subscription (incremental loading + background sync)
+        if self.conversation_list_subscription_active {
+            if let Some(device_id) = self.sms_device_id.clone() {
+                subs.push(Subscription::run_with(
+                    ("conversation_list", device_id.clone()),
+                    |(_, device_id)| conversation_list_subscription(device_id.clone()),
+                ));
+            }
+        }
+
+        // Per-thread message subscription (incremental message loading)
+        if self.conversation_load_active {
+            if let (Some(thread_id), Some(device_id)) =
+                (self.loading_thread_id, self.sms_device_id.clone())
+            {
+                let messages_per_page = config.messages_per_page;
+                subs.push(Subscription::run_with(
+                    (
+                        "conversation_messages",
+                        thread_id,
+                        device_id.clone(),
+                        messages_per_page,
+                    ),
+                    |(_, thread_id, device_id, messages_per_page)| {
+                        conversation_message_subscription(
+                            *thread_id,
+                            device_id.clone(),
+                            *messages_per_page,
+                        )
+                    },
+                ));
+            }
+        }
+
+        subs
     }
 
     pub fn open(

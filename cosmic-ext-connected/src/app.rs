@@ -17,13 +17,10 @@ use crate::media::{
     MediaControlsParams,
 };
 use crate::sms::{
-    conversation_list_subscription, fetch_conversations_async, prefetch_conversations_async,
-    view_conversation_list, view_message_thread, view_new_message, ConversationListParams,
-    MessageThreadParams, NewMessageParams, SmsConversationStore,
+    fetch_conversations_async, prefetch_conversations_async, SmsConversationStore, SmsViewMode,
 };
 use crate::subscriptions::{
-    call_notification_subscription, conversation_message_subscription, dbus_signal_subscription,
-    sms_notification_subscription,
+    call_notification_subscription, dbus_signal_subscription, sms_notification_subscription,
 };
 use crate::ui;
 use crate::views::send_to::{view_send_to, view_share_text, SendToParams, ShareTextParams};
@@ -1607,48 +1604,15 @@ impl Application for ConnectApplet {
         let content: Element<Message> = match &self.view_mode {
             ViewMode::Settings => view_settings(&self.config),
             ViewMode::NotificationSettings => view_notification_settings(&self.config),
-            ViewMode::ConversationList => view_conversation_list(ConversationListParams {
-                device_name: self.sms.sms_device_name.as_deref(),
-                conversations: &self.sms.conversations,
-                conversations_displayed: self.sms.conversations_displayed,
-                contacts: &self.sms.contacts,
-                loading_state: &self.sms.sms_loading_state,
-                sync_active: self.sms.conversation_sync_active,
-            }),
-            ViewMode::MessageThread => {
-                let thread = view_message_thread(MessageThreadParams {
-                    device_id: self.sms.sms_device_id.as_deref().unwrap_or(""),
-                    device_name: self.sms.sms_device_name.as_deref().unwrap_or(""),
-                    thread_addresses: self.sms.current_thread_addresses.as_deref(),
-                    messages: &self.sms.messages,
-                    contacts: &self.sms.contacts,
-                    loading_state: &self.sms.sms_loading_state,
-                    sms_compose_text: &self.sms.sms_compose_text,
-                    sms_sending: self.sms.sms_sending,
-                    sync_active: self.sms.message_sync_active,
-                    pressed_bubble_uid: self.sms.pressed_bubble_uid,
-                    show_copy_hint: self.sms.show_copy_hint,
-                    status_message: self.status_message.as_deref(),
-                });
-                // popup_container uses Shrink height internally, which sets a
-                // compression flag on iced's layout limits. Under compression,
-                // the flex layout processes all children in document order and a
-                // scrollable's intrinsic content size consumes all available
-                // height, leaving 0 for the compose row below it. A Fixed height
-                // wrapper is the only way to clear that flag (Fill doesn't);
-                // the value is capped to popup_container's 1000px max.
-                widget::container(thread)
-                    .height(cosmic::iced::Length::Fixed(10_000.0))
-                    .width(cosmic::iced::Length::Fill)
-                    .into()
-            }
-            ViewMode::NewMessage => view_new_message(NewMessageParams {
-                recipients: &self.sms.new_message_recipients,
-                recipient_input: &self.sms.new_message_recipient_input,
-                body: &self.sms.new_message_body,
-                sending: self.sms.new_message_sending,
-                contact_suggestions: &self.sms.contact_suggestions,
-            }),
+            ViewMode::ConversationList => self
+                .sms
+                .view(SmsViewMode::ConversationList, self.status_message.as_deref()),
+            ViewMode::MessageThread => self
+                .sms
+                .view(SmsViewMode::MessageThread, self.status_message.as_deref()),
+            ViewMode::NewMessage => self
+                .sms
+                .view(SmsViewMode::NewMessage, self.status_message.as_deref()),
             ViewMode::MediaControls => view_media_controls(MediaControlsParams {
                 device_name: self.media_device_name.as_deref(),
                 media_info: self.media_info.as_ref(),
@@ -1756,42 +1720,8 @@ impl Application for ConnectApplet {
             subscriptions.push(Subscription::run(call_notification_subscription));
         }
 
-        // Add conversation list subscription for incremental loading
-        // This provides real-time UI updates as conversations arrive from the phone
-        if self.sms.conversation_list_subscription_active {
-            if let Some(device_id) = self.sms.sms_device_id.clone() {
-                subscriptions.push(Subscription::run_with(
-                    ("conversation_list", device_id.clone()),
-                    |(_, device_id)| conversation_list_subscription(device_id.clone()),
-                ));
-            }
-        }
-
-        // Add conversation message subscription when loading a conversation
-        // This provides incremental message loading via D-Bus signals
-        // The subscription fires the D-Bus request itself after setting up match rules
-        if self.sms.conversation_load_active {
-            if let (Some(thread_id), Some(device_id)) =
-                (self.sms.loading_thread_id, self.sms.sms_device_id.clone())
-            {
-                let messages_per_page = self.config.messages_per_page;
-                subscriptions.push(Subscription::run_with(
-                    (
-                        "conversation_messages",
-                        thread_id,
-                        device_id.clone(),
-                        messages_per_page,
-                    ),
-                    |(_, thread_id, device_id, messages_per_page)| {
-                        conversation_message_subscription(
-                            *thread_id,
-                            device_id.clone(),
-                            *messages_per_page,
-                        )
-                    },
-                ));
-            }
-        }
+        // SMS-state-driven subscriptions (conversation list + per-thread messages)
+        subscriptions.extend(self.sms.subscriptions(&self.config));
 
         // Note: File notifications are handled in the main dbus_signal_subscription
         // to avoid issues with multiple D-Bus connections and match rules
