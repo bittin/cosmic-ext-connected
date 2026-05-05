@@ -97,7 +97,6 @@ pub struct SmsConversationStore {
     /// message subscription fan-out in `subscriptions()`.
     pub(crate) current_merged_thread_ids: Vec<i64>,
     pub(crate) current_thread_addresses: Option<Vec<String>>,
-    pub(crate) current_thread_sub_id: Option<i64>,
     pub(crate) messages: Vec<SmsMessage>,
     pub(crate) sms_loading_state: SmsLoadingState,
     pub(crate) contacts: ContactLookup,
@@ -148,7 +147,6 @@ impl SmsConversationStore {
             current_thread_id: None,
             current_merged_thread_ids: Vec::new(),
             current_thread_addresses: None,
-            current_thread_sub_id: None,
             messages: Vec::new(),
             sms_loading_state: SmsLoadingState::Idle,
             contacts: ContactLookup::default(),
@@ -203,6 +201,40 @@ impl SmsConversationStore {
     /// thread the user toggle through the call site.
     fn rederive_conversations(&mut self) {
         self.conversations = merge_into_logical(&self.raw_conversations);
+    }
+
+    /// Find the `LogicalConversation` containing `thread_id` (whether as
+    /// primary or as a merged sibling). Returns `None` for unknown thread
+    /// IDs. Centralizes the membership lookup pattern from M8.
+    fn logical_for(&self, thread_id: i64) -> Option<&LogicalConversation> {
+        self.conversations
+            .iter()
+            .find(|lc| lc.merged_thread_ids.contains(&thread_id))
+    }
+
+    /// Pick the threadId to pass to `replyToConversation` for the displayed
+    /// thread, per the Phase 1B-validated split-by-case rule.
+    ///
+    /// - **Symmetric merge** (canonical address-sets equal across the merged
+    ///   group — the only case M7's primary-equality heuristic produces) →
+    ///   redirect to `primary_thread_id` (most-recently-active sibling
+    ///   within `subID`). Matches AOSP's outgoing-reply canonicalization
+    ///   so the echo lands where we expect, and bypasses AOSP's per-bucket
+    ///   processing that produced recipient-side duplicate delivery on
+    ///   Pair 4 (1055↔58, captured 2026-05-02).
+    /// - **Asymmetric / subset clause** (untested across 6 captured Phase 1
+    ///   pairs; reintroduced if/when the subset clause returns in v0.6.0+)
+    ///   → preserve the displayed thread ID. Conservative until field data
+    ///   confirms the redirect is address-safe under subset shapes.
+    /// - **Non-merged or unknown** → return the displayed thread ID.
+    ///
+    /// See `Reaction Thread Splitting - Investigation and Fix Approach.md`
+    /// "Layer C-specific risks" for the full table.
+    pub(crate) fn reply_target(&self, displayed_thread_id: i64) -> i64 {
+        self.logical_for(displayed_thread_id)
+            .filter(|lc| lc.merged_thread_ids.len() > 1)
+            .map(|lc| lc.primary_thread_id)
+            .unwrap_or(displayed_thread_id)
     }
 
     /// Find the latest conversation timestamp for a phone number.
@@ -747,12 +779,6 @@ impl SmsConversationStore {
                 }
                 self.known_message_ids.insert(message.uid);
 
-                // Extract sub_id from first message (for MMS group messaging)
-                if self.current_thread_sub_id.is_none() {
-                    self.current_thread_sub_id = Some(message.sub_id);
-                    tracing::debug!("Set sub_id to {} for thread {}", message.sub_id, thread_id);
-                }
-
                 // Check if this confirms our pending sent message
                 let confirmed_send = self.sms_sending_body.is_some()
                     && message.message_type == MessageType::Sent
@@ -948,16 +974,23 @@ impl SmsConversationStore {
                         let message_text = self.sms_compose_text.clone();
                         self.sms_sending = true;
                         self.sms_sending_body = Some(message_text.clone());
+                        // Apply the split-by-case rule: for symmetric merges
+                        // (every merged set under M7's heuristic) redirect to
+                        // the primary thread. See `reply_target` for the
+                        // full rationale and Phase 1B citation.
+                        let reply_target = self.reply_target(thread_id);
                         tracing::info!(
-                            "Dispatching send_sms_async via replyToConversation for thread_id={}",
-                            thread_id
+                            "Dispatching send_sms_async via replyToConversation \
+                             displayed_thread_id={} reply_target={}",
+                            thread_id,
+                            reply_target
                         );
                         return (
                             cosmic::app::Task::perform(
                                 send_sms_async(
                                     conn.clone(),
                                     device_id.clone(),
-                                    thread_id,
+                                    reply_target,
                                     message_text,
                                 ),
                                 cosmic::Action::App,
@@ -1009,6 +1042,17 @@ impl SmsConversationStore {
                             // ConversationMessageReceived if the echo arrived before
                             // SmsSendResult — skip to avoid duplicate.
                             if self.sms_sending_body.is_some() {
+                                // Source sub_id from the LogicalConversation
+                                // populated at fetch time, not the lazy
+                                // first-message field that M9 retired. The
+                                // value is the same SIM property; sourcing
+                                // it here closes the pre-first-message
+                                // window where the optimistic stamp would
+                                // have fallen back to -1.
+                                let sub_id = self
+                                    .logical_for(thread_id)
+                                    .map(|lc| lc.subscription_id)
+                                    .unwrap_or(-1);
                                 let optimistic = SmsMessage {
                                     body: sent_body,
                                     addresses: self
@@ -1020,7 +1064,7 @@ impl SmsConversationStore {
                                     read: true,
                                     thread_id,
                                     uid: OPTIMISTIC_MESSAGE_UID,
-                                    sub_id: self.current_thread_sub_id.unwrap_or(-1),
+                                    sub_id,
                                     attachments: vec![],
                                 };
                                 self.messages.push(optimistic);

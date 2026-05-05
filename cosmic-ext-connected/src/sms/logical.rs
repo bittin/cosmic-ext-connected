@@ -26,7 +26,6 @@ pub struct LogicalConversation {
     pub merged_thread_ids: Vec<i64>,
     /// SIM subscription ID. Merge never crosses subID boundaries, so all
     /// threads in `merged_thread_ids` share this value.
-    #[allow(dead_code)] // Read at M9 (split-by-case reply rule).
     pub subscription_id: i64,
     /// Union of every underlying thread's address-set, deduplicated by
     /// canonical (digit-only) form. Original carrier formatting preserved

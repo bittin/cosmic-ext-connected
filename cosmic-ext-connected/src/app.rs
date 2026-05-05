@@ -1108,7 +1108,6 @@ impl Application for ConnectApplet {
                 self.sms.messages.clear();
                 self.sms.current_thread_id = None;
                 self.sms.current_thread_addresses = None;
-                self.sms.current_thread_sub_id = None;
                 self.sms.current_merged_thread_ids.clear();
                 self.sms.sms_loading_state = SmsLoadingState::Idle;
                 self.sms.conversation_sync_active = false;
@@ -1175,7 +1174,6 @@ impl Application for ConnectApplet {
                 self.view_mode = ViewMode::ConversationList;
                 self.sms.current_thread_id = None;
                 self.sms.current_thread_addresses = None;
-                self.sms.current_thread_sub_id = None;
                 self.sms.current_merged_thread_ids.clear();
                 self.sms.messages.clear();
                 self.sms.sms_compose_text.clear();
