@@ -102,6 +102,7 @@ cosmic-ext-connected/
     ├── NOTIFICATIONS.md    # Notification systems
     ├── MEDIA.md            # Media controls
     ├── UI_PATTERNS.md      # libcosmic UI patterns
+    ├── LOGGING.md          # Tracing/journald routing for diagnostics
     └── KNOWN_ISSUES.md     # Known issues and workarounds
 ```
 
@@ -159,6 +160,7 @@ For implementation details, see docs/:
 - **[docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md)** - SMS/call/file notifications, deduplication
 - **[docs/MEDIA.md](docs/MEDIA.md)** - Media player controls, sendAction pattern
 - **[docs/UI_PATTERNS.md](docs/UI_PATTERNS.md)** - libcosmic patterns, ViewMode, popups
+- **[docs/LOGGING.md](docs/LOGGING.md)** - Tracing events to systemd journal via tracing_journald layer
 - **[docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)** - Known issues and workarounds
 
 ## D-Bus Interface Pitfalls
