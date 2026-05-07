@@ -655,6 +655,7 @@ fn summarize_message(sms_msg: kdeconnect_dbus::plugins::SmsMessage) -> Conversat
         timestamp: sms_msg.date,
         unread: !sms_msg.read,
         has_attachments,
+        sub_id: sms_msg.sub_id,
     }
 }
 

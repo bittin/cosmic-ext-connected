@@ -50,6 +50,8 @@ install:
     install -Dm0644 data/icons/hicolor/scalable/apps/{{APPID}}.svg {{icon_dir}}/{{APPID}}.svg
     install -Dm0644 data/icons/hicolor/scalable/apps/{{APPID}}-symbolic.svg {{icon_dir}}/{{APPID}}-symbolic.svg
     install -Dm0644 data/icons/hicolor/scalable/apps/{{APPID}}-disconnected-symbolic.svg {{icon_dir}}/{{APPID}}-disconnected-symbolic.svg
+    install -Dm0644 data/icons/hicolor/scalable/apps/{{APPID}}-merged-symbolic.svg {{icon_dir}}/{{APPID}}-merged-symbolic.svg
+    install -Dm0644 data/icons/hicolor/scalable/apps/{{APPID}}-split-symbolic.svg {{icon_dir}}/{{APPID}}-split-symbolic.svg
     @echo "Installed {{name}} to {{bin_dir}}"
     @echo "Installed {{APPID}}.desktop to {{app_dir}}"
     @echo ""
@@ -68,6 +70,8 @@ uninstall:
     rm -f {{icon_dir}}/{{APPID}}.svg
     rm -f {{icon_dir}}/{{APPID}}-symbolic.svg
     rm -f {{icon_dir}}/{{APPID}}-disconnected-symbolic.svg
+    rm -f {{icon_dir}}/{{APPID}}-merged-symbolic.svg
+    rm -f {{icon_dir}}/{{APPID}}-split-symbolic.svg
     @echo "Uninstalled {{name}}"
     @echo "Restart cosmic-panel to remove from panel: killall cosmic-panel"
 

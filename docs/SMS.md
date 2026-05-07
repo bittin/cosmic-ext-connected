@@ -61,6 +61,50 @@ Important details:
   - **Fallback**: `phone_deadline` expires with `received <= 1` — used if the daemon doesn't re-emit `conversationLoaded` (e.g. the phone added no new UIDs, or a signal-ordering race). Narrow gate kept here on purpose: if no duplicate fired, retry against an unchanged store would just re-deliver what we already have.
   The retry uses `requestConversation(threadId, received, received + page)` — same offset shape as KDE Connect's `ConversationModel::requestMoreMessages`. The resulting per-message signals merge via `known_message_ids` dedup in `app.rs`.
 
+### Reaction-Thread Merging
+
+iOS reactions over SMS arrive on slightly different address-sets and AOSP buckets them into a separate `threadId`. The phone re-merges visually; KDE Connect / Connected report them separately. Connected wraps each user-perceived conversation in a `LogicalConversation` (`sms/logical.rs`) that may collapse multiple underlying SMS threadIds.
+
+Merging precondition (`is_reaction_bucket`):
+
+- both `sub_id`s are non-`-1` and equal, AND
+- canonical address-sets are equal (digit-only normalize, leading-`1` stripped, deduplicated as a set).
+
+Each `LogicalConversation` carries:
+
+- `primary_thread_id` — the most-recently-active sibling within the merged set; used as the reply target.
+- `merged_thread_ids` — all underlying threadIds composing this logical conversation. Always contains `primary_thread_id`. Single-element for non-merged.
+
+Opening a merged conversation fans out the message subscription: one `conversation_message_subscription` per underlying threadId, each firing its own `requestConversation` and emitting `ConversationMessageReceived` for its own thread. Signal handlers accept any thread in the open `current_merged_thread_ids` set rather than only the primary.
+
+Multi-subscription completion semantics:
+
+- `ConversationLoadComplete` is idempotent. Math (sort, `messages_has_more`, `last_seen_sms`) always runs; loading-state clear and scroll-to-bottom snap fire only on the first arrival. Late completions silently refresh stats so a slow-completing subscription can't yank the user back to bottom.
+- `messages_has_more` math forces a heuristic-only branch when `current_merged_thread_ids.len() > 1`, since per-thread `total_count` is incomparable to the union `messages.len()`.
+
+### Reply target rule
+
+When the user sends a reply into a conversation, Connected picks the threadId to pass to `replyToConversation` based on the merge state of the open conversation:
+
+- **Symmetric merge** (canonical address-sets equal across the merged group — the case M7's primary-equality heuristic produces): redirect to `primary_thread_id`. This matches AOSP's outgoing-reply canonicalization, so the echo lands on the threadId Connected passed and the optimistic-send reconciliation can complete cleanly. As a side effect, the redirect bypasses AOSP's per-bucket processing that would otherwise produce **recipient-side duplicate delivery** — the recipient receives one copy instead of two.
+- **Asymmetric / subset clause** (untested across captured pairs; reintroduced if/when the subset clause returns to the merge heuristic): preserve the displayed thread's threadId. Conservative until field data confirms the redirect is address-safe under subset shapes. The branch is dormant under M7's primary-equality heuristic — every merged set is symmetric by construction — so production paths today take the symmetric arm exclusively.
+- **Non-merged or unknown thread**: pass the displayed threadId through unchanged.
+
+The duplicate-delivery side effect is empirically locked. Pre-merge behavior on a known reaction-bucket pair (Pair 4 captured 2026-05-02) reproduced two-copy delivery to the recipient. Under the redirect, the same pair delivers one copy. The redirect is therefore a corrective fix for a recipient-visible bug, not just a display-merge convenience.
+
+The reply-target rule applies only when merging is on. With merging off (see "Per-entry markers and SMS-view toggle" below), Connected sends to whichever underlying thread the user opened. Replying into the non-canonical sibling thread of a reaction-bucket pair will reproduce the AOSP-canonicalization symptoms — the echo arrives on the canonical primary instead of the displayed thread, the optimistic-send "Sending…" indicator can stay pinned, and the recipient may receive duplicate copies. This is documented behavior gated behind the user opt-out, not a regression.
+
+### Per-entry markers and SMS-view toggle
+
+The SMS conversation list shows a small marker on rows that participate in a reaction-bucket group. Two glyphs:
+
+- **Merge marker** (visible when the merge toggle is on): rows whose `LogicalConversation.merged_thread_ids.len() > 1` show a converging-Y glyph next to the message preview. Indicates "this conversation merges multiple phone-side threads."
+- **Split marker** (visible when the merge toggle is off): rows whose underlying thread has at least one reaction-bucket sibling in the conversation list show a parallel-arrows glyph next to the message preview. Indicates "this conversation has a sibling thread on the phone; turning the merge toggle on would combine them."
+
+A header toggle in the SMS view (between the conversation-list title and the new-message button) switches between merged and split states. The toggle uses the same iconography as the per-entry markers — converging-Y when merging is on, parallel-arrows when off — and dispatches the same `Message::ToggleSetting(SettingKey::MergeReactionThreads)` as the M13 settings option, so the two surfaces share state automatically. Toggling either one updates the other, and the toggle state persists across applet restarts.
+
+The merge-off path uses the same `is_reaction_bucket` predicate as the merge-on path, so any pair the merge logic *would* combine also appears as split-marker entries when the user has merging off. When the v0.6.0+ subset clause returns to the heuristic, both surfaces pick it up automatically without further coordination.
+
 ### Older Message Loading
 
 Older messages are loaded automatically when the user scrolls near the top of the thread.
@@ -68,6 +112,8 @@ Older messages are loaded automatically when the user scrolls near the top of th
 - Scroll position and content height are captured before the fetch.
 - Older messages are prepended when they arrive.
 - Scroll offset is adjusted so the user stays anchored near the same visible messages.
+
+For merged conversations, scroll prefetch fires only against `primary_thread_id`. Older messages from secondary `merged_thread_ids` are not backfilled on scroll. Captured smoke-test cases (NM, FH, Pair 1) have all user-visible orphaned reactions within `messages_per_page = 50` of the open, so initial-load fan-out covers them. Fanning out scroll prefetch is a deferred follow-up.
 
 ## Sending Behavior
 
@@ -80,6 +126,8 @@ On success:
 - the conversation preview updates immediately with the latest body and timestamp
 - an optimistic sent bubble is inserted into the open thread
 - the long-lived message subscription reconciles that optimistic entry when the phone echoes back the real sent message
+
+For merged conversations, optimistic-send reconciliation matches by `OPTIMISTIC_MESSAGE_UID` + body + 5-minute window with no thread-id filter, so an echo arriving on a sibling thread within `merged_thread_ids` still upgrades the optimistic bubble in place. Combined with the symmetric-merge reply-target redirect (see "Reply target rule" above), this is what closes the present-tense "stuck spinner" UX behavior that pre-merge code paths produced when AOSP canonicalized the outgoing message into a non-displayed sibling thread.
 
 ### New Messages
 
@@ -115,6 +163,7 @@ Caching behavior:
 - Reply sending still depends on daemon cache priming before `replyToConversation` can work reliably.
 - Group-message behavior remains subject to KDE Connect limitations documented in `docs/KNOWN_ISSUES.md`.
 - Notification correctness depends on careful `last_seen_sms` handling when opening threads and merging incoming data.
+- For merged (reaction-bucket) conversations, scroll prefetch fires only against the primary threadId; older messages from secondary merged threads are not backfilled on scroll.
 
 ## Reference
 

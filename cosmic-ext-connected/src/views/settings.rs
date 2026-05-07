@@ -50,6 +50,13 @@ pub fn view_settings(config: &Config) -> Element<'_, Message> {
                 .toggler(config.forward_notifications, move |_| {
                     Message::ToggleSetting(SettingKey::ForwardNotifications)
                 }),
+        )
+        .add(
+            settings::item::builder(fl!("settings-sms-merge-reaction-threads"))
+                .description(fl!("settings-sms-merge-reaction-threads-desc"))
+                .toggler(config.merge_reaction_threads, move |_| {
+                    Message::ToggleSetting(SettingKey::MergeReactionThreads)
+                }),
         );
 
     // Navigation to notification settings sub-page

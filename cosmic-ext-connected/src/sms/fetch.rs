@@ -152,6 +152,7 @@ async fn fetch_conversations_via_signals(
                                     timestamp: msg.date,
                                     unread: !msg.read,
                                     has_attachments,
+                                    sub_id: msg.sub_id,
                                 });
                             }
                         }
@@ -183,6 +184,7 @@ async fn fetch_conversations_via_signals(
                                     timestamp: msg.date,
                                     unread: !msg.read,
                                     has_attachments,
+                                    sub_id: msg.sub_id,
                                 });
                             }
                         }
@@ -248,6 +250,7 @@ async fn fetch_conversations_via_signals(
                                 timestamp: msg.date,
                                 unread: !msg.read,
                                 has_attachments,
+                                sub_id: msg.sub_id,
                             });
                         }
                     }
@@ -269,6 +272,7 @@ async fn fetch_conversations_via_signals(
                                 timestamp: msg.date,
                                 unread: !msg.read,
                                 has_attachments,
+                                sub_id: msg.sub_id,
                             });
                         }
                     }

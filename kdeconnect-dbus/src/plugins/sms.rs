@@ -226,6 +226,12 @@ pub struct ConversationSummary {
     pub unread: bool,
     /// Whether the last message has MMS attachments.
     pub has_attachments: bool,
+    /// SIM subscription ID from the latest message in the conversation
+    /// (`-1` if untracked, e.g. older messages predating subID tracking).
+    /// Required by the reaction-bucket merge heuristic to enforce dual-SIM
+    /// safety: two threads with the same canonical address-set are only
+    /// merged when their `sub_id` values match.
+    pub sub_id: i64,
 }
 
 /// Helper to extract a string from a Value.
@@ -416,6 +422,7 @@ pub fn parse_conversations(values: Vec<OwnedValue>) -> Vec<ConversationSummary> 
             timestamp: msg.date,
             unread: !msg.read,
             has_attachments,
+            sub_id: msg.sub_id,
         });
 
         // Limit to most recent conversations

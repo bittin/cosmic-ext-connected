@@ -26,6 +26,11 @@ pub struct Config {
     pub sms_notification_show_content: bool,
     /// Show sender name in SMS notifications (privacy)
     pub sms_notification_show_sender: bool,
+    /// Merge iOS reaction-bucket sibling threads into one logical conversation.
+    /// When off, each underlying thread renders separately and replies are sent
+    /// against the user-displayed thread (which can produce duplicate delivery
+    /// on the recipient side for symmetric merges — see v0.5.0 Topic 2).
+    pub merge_reaction_threads: bool,
     /// Enable desktop notifications for incoming/missed calls
     pub call_notifications: bool,
     /// Show phone number in call notifications (privacy)
@@ -49,6 +54,7 @@ impl Default for Config {
             sms_notifications: true,
             sms_notification_show_content: true,
             sms_notification_show_sender: true,
+            merge_reaction_threads: true,
             call_notifications: true,
             call_notification_show_number: true,
             call_notification_show_name: true,

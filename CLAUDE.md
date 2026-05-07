@@ -142,10 +142,13 @@ fn is_charging(&self) -> zbus::Result<bool>;
 - To accent-color an icon widget, convert `Named` to `Icon` first, then apply `Svg::custom`:
   ```rust
   icon::from_name("icon-name").size(48).icon()
-      .class(theme::Svg::custom(|theme| svg::Style {
-          color: Some(theme.cosmic().accent_text_color().into()),
+      .class(cosmic::theme::Svg::custom(|theme| {
+          cosmic::iced::widget::svg::Style {
+              color: Some(theme.cosmic().accent_text_color().into()),
+          }
       }))
   ```
+  Note: `svg::Style` lives at `cosmic::iced::widget::svg::Style` (the consumer re-export). Reaching for `cosmic::iced_widget::svg::Style` — which is libcosmic's *internal* path — won't resolve from consumer crates.
 
 ### Code Style
 - Follow rustfmt and clippy

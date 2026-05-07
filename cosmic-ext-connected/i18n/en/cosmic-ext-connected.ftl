@@ -100,6 +100,13 @@ settings-sms-notifications = Show SMS messages
 settings-sms-show-sender = Show sender
 settings-sms-show-content = Show content
 
+# SMS behavior settings
+settings-sms-merge-reaction-threads = Merge reaction-bucket threads
+settings-sms-merge-reaction-threads-desc =
+   Group iOS reactions with the conversation they're replying to. Turning this
+   off restores per-thread display but can cause some replies to be delivered
+   twice on the recipient's side.
+
 # Call Notifications settings
 settings-call-section = Calls
 settings-call-notifications = Show calls
@@ -190,3 +197,7 @@ unpaired = Unpaired from device
 attachment = Attachment
 loading-attachment = Loading attachment...
 attachment-failed = Failed to load attachment
+
+# Reaction-thread merging UI
+merge-toggle-on-tooltip = Reaction threads are merged. Click to show separately.
+merge-toggle-off-tooltip = Reaction threads are shown separately. Click to merge.

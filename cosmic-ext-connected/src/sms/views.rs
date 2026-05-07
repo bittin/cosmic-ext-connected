@@ -1,6 +1,6 @@
 //! SMS view components for conversation list and message threads.
 
-use crate::app::{LoadingPhase, Message, SmsLoadingState};
+use crate::app::{LoadingPhase, Message, SettingKey, SmsLoadingState};
 use crate::fl;
 use crate::views::helpers::format_timestamp;
 use base64::Engine;
@@ -12,9 +12,10 @@ use cosmic::widget::{self, text};
 use cosmic::Element;
 use kdeconnect_dbus::contacts::ContactLookup;
 use kdeconnect_dbus::plugins::{
-    is_address_valid, Attachment, ConversationSummary, MessageType, SmsMessage,
+    is_address_valid, Attachment, MessageType, SmsMessage,
     OPTIMISTIC_MESSAGE_UID,
 };
+use crate::sms::logical::LogicalConversation;
 
 // --- Helper functions for loading state ---
 
@@ -144,12 +145,17 @@ fn view_attachment<'a>(
 /// Parameters for the conversation list view.
 pub struct ConversationListParams<'a> {
     pub device_name: Option<&'a str>,
-    pub conversations: &'a [ConversationSummary],
+    pub conversations: &'a [LogicalConversation],
     pub conversations_displayed: usize,
     pub contacts: &'a ContactLookup,
     pub loading_state: &'a SmsLoadingState,
     /// Whether background sync is active (syncing conversations from phone)
     pub sync_active: bool,
+    /// Current value of `config.merge_reaction_threads`. Drives the header
+    /// toggle's icon + tooltip; also controls whether per-entry merge
+    /// markers can appear (no markers when merging is off because no
+    /// `LogicalConversation` will have `merged_thread_ids.len() > 1`).
+    pub merge_reaction_threads: bool,
 }
 
 /// Render the SMS conversation list view.
@@ -189,9 +195,31 @@ pub fn view_conversation_list(params: ConversationListParams<'_>) -> Element<'_,
     .gap(sp.space_xxxs)
     .padding(sp.space_xxs);
 
+    let (merge_toggle_icon, merge_toggle_tooltip) = if params.merge_reaction_threads {
+        (
+            "io.github.nwxnw.cosmic-ext-connected-merged-symbolic",
+            fl!("merge-toggle-on-tooltip"),
+        )
+    } else {
+        (
+            "io.github.nwxnw.cosmic-ext-connected-split-symbolic",
+            fl!("merge-toggle-off-tooltip"),
+        )
+    };
+    let merge_toggle_btn = widget::tooltip(
+        widget::button::icon(widget::icon::from_name(merge_toggle_icon))
+            .class(cosmic::theme::Button::Link)
+            .on_press(Message::ToggleSetting(SettingKey::MergeReactionThreads)),
+        text::caption(merge_toggle_tooltip),
+        widget::tooltip::Position::Bottom,
+    )
+    .gap(sp.space_xxxs)
+    .padding(sp.space_xxs);
+
     let header = applet::padded_control(
         header_row
             .push(widget::space::horizontal())
+            .push(merge_toggle_btn)
             .push(new_msg_btn),
     );
 
@@ -225,11 +253,11 @@ pub fn view_conversation_list(params: ConversationListParams<'_>) -> Element<'_,
             .take(params.conversations_displayed)
         {
             let display_name = params.contacts.get_group_display_name(&conv.addresses, 3);
-            let date_str = format_timestamp(conv.timestamp);
+            let date_str = format_timestamp(conv.last_message_timestamp);
 
             // Build snippet: show attachment indicator if needed
             let snippet_element: Element<Message> =
-                if conv.has_attachments && conv.last_message.is_empty() {
+                if conv.has_attachments && conv.last_message_preview.is_empty() {
                     // MMS with only attachments (no text body)
                     row![
                         widget::icon::from_name("mail-attachment-symbolic").size(14),
@@ -241,7 +269,7 @@ pub fn view_conversation_list(params: ConversationListParams<'_>) -> Element<'_,
                     .into()
                 } else if conv.has_attachments {
                     // MMS with both text and attachments
-                    let snippet = conv.last_message.chars().take(50).collect::<String>();
+                    let snippet = conv.last_message_preview.chars().take(50).collect::<String>();
                     row![
                         widget::icon::from_name("mail-attachment-symbolic").size(14),
                         text::caption(snippet).wrapping(cosmic::iced::widget::text::Wrapping::None),
@@ -250,11 +278,37 @@ pub fn view_conversation_list(params: ConversationListParams<'_>) -> Element<'_,
                     .align_y(Alignment::Center)
                     .into()
                 } else {
-                    let snippet = conv.last_message.chars().take(50).collect::<String>();
+                    let snippet = conv.last_message_preview.chars().take(50).collect::<String>();
                     text::caption(snippet)
                         .wrapping(cosmic::iced::widget::text::Wrapping::None)
                         .into()
                 };
+
+            let marker_glyph: Option<&str> = if conv.merged_thread_ids.len() > 1 {
+                Some("io.github.nwxnw.cosmic-ext-connected-merged-symbolic")
+            } else if conv.is_split_candidate {
+                Some("io.github.nwxnw.cosmic-ext-connected-split-symbolic")
+            } else {
+                None
+            };
+
+            let snippet_row: Element<Message> = if let Some(glyph) = marker_glyph {
+                let marker_icon = widget::icon::from_name(glyph).size(14).icon()
+                    .class(cosmic::theme::Svg::custom(|theme| {
+                        cosmic::iced::widget::svg::Style {
+                            color: Some(theme.cosmic().accent_text_color().into()),
+                        }
+                    }));
+                row![
+                    marker_icon,
+                    snippet_element,
+                ]
+                .spacing(sp.space_xxxs)
+                .align_y(Alignment::Center)
+                .into()
+            } else {
+                snippet_element
+            };
 
             let conv_row = applet::menu_button(
                 row![
@@ -262,7 +316,7 @@ pub fn view_conversation_list(params: ConversationListParams<'_>) -> Element<'_,
                         column![
                             text::body(display_name)
                                 .wrapping(cosmic::iced::widget::text::Wrapping::None),
-                            snippet_element,
+                            snippet_row,
                         ]
                         .spacing(2),
                     )
@@ -274,7 +328,7 @@ pub fn view_conversation_list(params: ConversationListParams<'_>) -> Element<'_,
                 .spacing(sp.space_xxs)
                 .align_y(Alignment::Center),
             )
-            .on_press(Message::OpenConversation(conv.thread_id));
+            .on_press(Message::OpenConversation(conv.primary_thread_id));
 
             conv_column = conv_column.push(conv_row);
         }
@@ -708,6 +762,7 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
     // Message input
     let message_input = widget::text_input(fl!("type-message"), params.body)
         .on_input(Message::NewMessageBodyInput)
+        .on_submit(|_| Message::SendNewMessage)
         .width(Length::Fill);
 
     // Send button — enabled when at least one recipient and body is non-empty
@@ -733,9 +788,9 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
 
     column![
         header,
-        chips_section,
         recipient_row,
         suggestions_section,
+        chips_section,
         applet::padded_control(message_input),
         send_row,
         widget::space::vertical(),

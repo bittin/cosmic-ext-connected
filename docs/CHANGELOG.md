@@ -2,6 +2,18 @@
 
 All notable changes to Connected will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **SMS: merged-conversation indicators and SMS-view toggle.** Conversations that Connected has merged from multiple phone-side threads (the iOS-reaction-over-SMS case) now show a small marker on the conversation list. A new toggle in the SMS view header switches between the merged and split views in one click — useful if the heuristic misfires for a particular conversation, or just to see what the phone's underlying thread structure looks like. The toggle shares state with the new SMS settings option.
+- **SMS: split-thread indicators when merging is off.** When the merge toggle is off, conversations whose underlying threads are reaction-bucket siblings on the phone now show a passive marker on the conversation list. At-a-glance visibility into which conversations would merge if the feature were enabled.
+
+### Fixed
+- **SMS: iOS reaction-over-SMS no longer splits a conversation across multiple threads.** Threads with identical participants on the same SIM are merged into one logical conversation, and replies route through the merged set. **As a side effect, replying on these conversations now delivers a single copy to recipients — previously, AOSP canonicalization across the split could produce duplicate delivery.** A toggle in SMS settings lets you disable merging if it misfires on your carrier/device combo.
+
+### Changed
+- **Internal refactor:** SMS conversation state extracted from the main applet module into a dedicated `SmsConversationStore`. No user-visible change on its own; enables the reaction-thread merging feature above and unlocks targeted SMS tests in v0.6.0.
+
 ## [0.4.0] - 2026-05-01
 
 ### Added
