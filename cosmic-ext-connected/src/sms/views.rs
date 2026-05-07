@@ -293,8 +293,14 @@ pub fn view_conversation_list(params: ConversationListParams<'_>) -> Element<'_,
             };
 
             let snippet_row: Element<Message> = if let Some(glyph) = marker_glyph {
+                let marker_icon = widget::icon::from_name(glyph).size(14).icon()
+                    .class(cosmic::theme::Svg::custom(|theme| {
+                        cosmic::iced::widget::svg::Style {
+                            color: Some(theme.cosmic().accent_text_color().into()),
+                        }
+                    }));
                 row![
-                    widget::icon::from_name(glyph).size(12),
+                    marker_icon,
                     snippet_element,
                 ]
                 .spacing(sp.space_xxxs)
