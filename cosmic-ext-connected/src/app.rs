@@ -484,7 +484,7 @@ impl Application for ConnectApplet {
     type Flags = ();
     type Message = Message;
 
-    const APP_ID: &'static str = "io.github.nwxnw.cosmic-ext-connected";
+    const APP_ID: &'static str = crate::config::APP_ID;
 
     fn core(&self) -> &Core {
         &self.core
