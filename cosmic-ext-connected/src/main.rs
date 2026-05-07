@@ -23,8 +23,13 @@ fn main() -> cosmic::iced::Result {
     use tracing_subscriber::util::SubscriberInitExt;
     use tracing_subscriber::{fmt, EnvFilter};
 
-    let filter =
-        EnvFilter::from_default_env().add_directive("cosmic_ext_connected=info".parse().unwrap());
+    let default_directive = if cfg!(debug_assertions) {
+        "cosmic_ext_connected=debug"
+    } else {
+        "cosmic_ext_connected=warn"
+    };
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(default_directive));
 
     let fmt_layer = fmt::layer()
         .with_target(false)
