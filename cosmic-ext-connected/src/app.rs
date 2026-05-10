@@ -1022,9 +1022,10 @@ impl Application for ConnectApplet {
                     self.sms.sms_device_id = Some(device_id.clone());
                     self.sms.sms_device_name = device_name;
 
-                    // Clear contacts if switching to a different device
+                    // Per-device caches; otherwise the prior device's raw entries bleed into the new list when its subscription re-derives.
                     if !same_device {
                         self.sms.contacts = ContactLookup::default();
+                        self.sms.raw_conversations.clear();
                     }
 
                     // Load contacts if not already loaded for this device
@@ -1074,10 +1075,9 @@ impl Application for ConnectApplet {
                                         .insert(conv.thread_id, conv.timestamp);
                                 }
                             }
-                            self.sms.conversations = prefetched
-                                .into_iter()
-                                .map(crate::sms::logical::LogicalConversation::from_single)
-                                .collect();
+                            // Seed raw_conversations and re-derive so the merge toggle works before the subscription's first refresh.
+                            self.sms.raw_conversations = prefetched;
+                            self.sms.rederive_conversations(&self.config);
                             self.sms.conversations_displayed = 10;
                             self.sms.sms_loading_state = SmsLoadingState::Idle;
                             self.sms.conversation_sync_active = true;
