@@ -121,8 +121,10 @@ pub struct SmsConversationStore {
     pub(crate) new_message_sending: bool,
     pub(crate) contact_suggestions: Vec<(String, String)>,
 
-    // SMS notification deduplication
-    pub(crate) last_seen_sms: HashMap<i64, i64>,
+    // SMS notification deduplication. Keyed by (device_id, thread_id) because
+    // thread IDs are device-local — phone A's thread 1234 and phone B's
+    // thread 1234 are unrelated conversations.
+    pub(crate) last_seen_sms: HashMap<(String, i64), i64>,
 
     // Long-press copy
     pub(crate) pressed_bubble_uid: Option<i32>,
@@ -349,11 +351,13 @@ impl SmsConversationStore {
                 if !convs.is_empty() {
                     // Pre-populate last_seen_sms to prevent false notifications
                     // for messages that already exist in loaded conversations
-                    for conv in &convs {
-                        // Only update if we don't have a newer timestamp already
-                        let current = self.last_seen_sms.get(&conv.thread_id).copied();
-                        if current.is_none() || current < Some(conv.timestamp) {
-                            self.last_seen_sms.insert(conv.thread_id, conv.timestamp);
+                    if let Some(device_id) = self.sms_device_id.clone() {
+                        for conv in &convs {
+                            let key = (device_id.clone(), conv.thread_id);
+                            let current = self.last_seen_sms.get(&key).copied();
+                            if current.is_none() || current < Some(conv.timestamp) {
+                                self.last_seen_sms.insert(key, conv.timestamp);
+                            }
                         }
                     }
 
@@ -425,10 +429,10 @@ impl SmsConversationStore {
                 self.rederive_conversations(ctx.config);
 
                 // Update last_seen for notification deduplication
-                let current = self.last_seen_sms.get(&conversation.thread_id).copied();
+                let key = (device_id, conversation.thread_id);
+                let current = self.last_seen_sms.get(&key).copied();
                 if current.is_none() || current < Some(conversation.timestamp) {
-                    self.last_seen_sms
-                        .insert(conversation.thread_id, conversation.timestamp);
+                    self.last_seen_sms.insert(key, conversation.timestamp);
                 }
 
                 // Transition from loading spinner to showing data (but keep sync indicator)
@@ -926,9 +930,12 @@ impl SmsConversationStore {
                 self.messages_has_more = self
                     .compute_messages_has_more(total_count, ctx.config.messages_per_page as usize);
                 if let Some(newest) = self.messages.iter().map(|m| m.date).max() {
-                    let current = self.last_seen_sms.get(&thread_id).copied();
-                    if current.is_none() || current < Some(newest) {
-                        self.last_seen_sms.insert(thread_id, newest);
+                    if let Some(device_id) = self.sms_device_id.clone() {
+                        let key = (device_id, thread_id);
+                        let current = self.last_seen_sms.get(&key).copied();
+                        if current.is_none() || current < Some(newest) {
+                            self.last_seen_sms.insert(key, newest);
+                        }
                     }
                 }
 
@@ -1196,14 +1203,15 @@ impl SmsConversationStore {
                 }
 
                 // Check if we've already seen this message (deduplication)
-                let last_seen = self.last_seen_sms.get(&message.thread_id).copied();
+                let key = (device_id.clone(), message.thread_id);
+                let last_seen = self.last_seen_sms.get(&key).copied();
                 if last_seen.is_some() && last_seen >= Some(message.date) {
                     // Already seen this message or an older one
                     return (cosmic::app::Task::none(), SmsReply::NoOp);
                 }
 
                 // Update last seen timestamp for this thread
-                self.last_seen_sms.insert(message.thread_id, message.date);
+                self.last_seen_sms.insert(key, message.date);
 
                 // Capture config settings
                 let show_sender = ctx.config.sms_notification_show_sender;

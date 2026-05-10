@@ -1068,11 +1068,10 @@ impl Application for ConnectApplet {
                         if let Some((_, prefetched)) = self.sms.sms_prefetch.take() {
                             // Seed last_seen_sms to prevent false notifications
                             for conv in &prefetched {
-                                let current = self.sms.last_seen_sms.get(&conv.thread_id).copied();
+                                let key = (device_id.clone(), conv.thread_id);
+                                let current = self.sms.last_seen_sms.get(&key).copied();
                                 if current.is_none() || current < Some(conv.timestamp) {
-                                    self.sms
-                                        .last_seen_sms
-                                        .insert(conv.thread_id, conv.timestamp);
+                                    self.sms.last_seen_sms.insert(key, conv.timestamp);
                                 }
                             }
                             // Seed raw_conversations and re-derive so the merge toggle works before the subscription's first refresh.
@@ -1147,7 +1146,11 @@ impl Application for ConnectApplet {
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_millis() as i64)
                         .unwrap_or(0);
-                    self.sms.last_seen_sms.insert(thread_id, now_ms);
+                    if let Some(device_id) = self.sms.sms_device_id.clone() {
+                        self.sms
+                            .last_seen_sms
+                            .insert((device_id, thread_id), now_ms);
+                    }
 
                     self.sms.current_thread_id = Some(thread_id);
                     self.sms.current_thread_addresses = addresses;
