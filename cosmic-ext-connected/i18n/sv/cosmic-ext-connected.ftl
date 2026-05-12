@@ -106,6 +106,14 @@ settings-sms-show-content-desc = Visa förhandsgranskning av meddelande i aviser
 settings-sms-show-sender = Visa avsändarnamn
 settings-sms-show-sender-desc = Visa vem som skickade meddelandet
 
+# TODO(sv): translate - added in v0.5.0
+# SMS behavior settings
+settings-sms-merge-reaction-threads = Merge reaction-bucket threads
+settings-sms-merge-reaction-threads-desc =
+   Group iOS reactions with the conversation they're replying to. Turning this
+   off restores per-thread display but can cause some replies to be delivered
+   twice on the recipient's side.
+
 # Inställningar för samtalsaviseringar
 settings-call-notifications = Samtalsaviseringar
 settings-call-notifications-desc = Visa skrivbordsaviseringar för inkommande och missade samtal
@@ -199,3 +207,8 @@ unpaired = Avparad från enhet
 attachment = Bilaga
 loading-attachment = Laddar bilaga...
 attachment-failed = Misslyckades att ladda bilaga
+
+# TODO(sv): translate - added in v0.5.0
+# Reaction-thread merging UI
+merge-toggle-on-tooltip = Reaction threads are merged. Click to show separately.
+merge-toggle-off-tooltip = Reaction threads are shown separately. Click to merge.
