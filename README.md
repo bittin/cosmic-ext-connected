@@ -2,7 +2,7 @@
 
 A phone connectivity applet for the [COSMIC](https://github.com/pop-os/cosmic-epoch) desktop panel, powered by [KDE Connect](https://kdeconnect.kde.org/).
 
-![Connected applet showing device page](screenshots/connected-applet.png)
+<img src="screenshots/connected-applet.png" alt="Connected applet showing device page" width="380">
 
 ## Features
 
@@ -15,6 +15,21 @@ A phone connectivity applet for the [COSMIC](https://github.com/pop-os/cosmic-ep
 - **Battery Status** - Monitor battery level and charging state
 - **Media Controls** - Control music playback (play/pause, next/previous, volume)
 - **Find My Phone** - Ring or ping your phone to locate it
+
+ ### SMS Reaction-Thread Merging
+
+When someone reacts to an SMS from iOS, Android often files the reaction into a separate thread from the original conversation. Connected detects these split threads and merges them on the desktop side, with a one-click toggle to switch between merged and split views.
+
+  <table>
+    <tr>
+      <td align="center"><b>Split view</b></td>
+      <td align="center"><b>Merged view</b></td>
+    </tr>
+    <tr>
+      <td><img src="screenshots/sms-threads-split.png" alt="Split conversation view" width="380"></td>
+      <td><img src="screenshots/sms-threads-merged.png" alt="Merged conversation view" width="380"></td>
+    </tr>
+  </table>
 
 ## Requirements
 
