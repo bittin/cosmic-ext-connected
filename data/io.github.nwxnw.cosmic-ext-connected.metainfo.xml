@@ -56,6 +56,22 @@
   </screenshots>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.5.1" date="2026-05-15">
+      <description>
+        <p>Update metainfo for Cosmic Store.</p>
+      </description>
+    </release>
+    <release version="0.5.0" date="2026-05-12">
+      <description>
+        <p>SMS reaction-thread merging, structured journal logging, and cross-device cache scoping.</p>
+        <ul>
+          <li>Merged iOS-style reaction threads into their parent conversation so reactions no longer generate split threads</li>
+          <li>Added Settings toggle to control reaction-thread merging, with split/merge indicators in the conversation list and thread header</li>
+          <li>Routed applet logs to the systemd journal</li>
+          <li>Fixed cross-device SMS state contamination</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.4.0" date="2026-05-01">
       <description>
         <p>Desktop and laptop peer support, pair-state reliability, SMS first-open truncation fix, and UI tightening.</p>
