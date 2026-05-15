@@ -2,6 +2,11 @@
 
 All notable changes to Connected will be documented in this file.
 
+## [0.5.1] - 2026-05-15
+
+### Changed
+- **Internal:** Declared `com.system76.CosmicApplet` as a provides ID in `metainfo.xml` so the COSMIC Store categorizes under Applets. No behavior change.
+
 ## [0.5.0] - 2026-05-12
 
 ### Added
