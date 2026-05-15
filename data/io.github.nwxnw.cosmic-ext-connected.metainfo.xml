@@ -15,6 +15,7 @@
     <ul>
       <li>Device battery status and connectivity monitoring</li>
       <li>SMS messaging with conversation threads</li>
+      <li>Smart SMS threading that merges conversations iOS reactions split into multiple threads on Android</li>
       <li>Media player remote control</li>
       <li>Desktop notifications for calls, messages, and file transfers</li>
       <li>Ping your phone to find it</li>
@@ -58,7 +59,7 @@
   <releases>
     <release version="0.5.1" date="2026-05-15">
       <description>
-        <p>Update metainfo for Cosmic Store.</p>
+        <p>Update metainfo for COSMIC Store.</p>
       </description>
     </release>
     <release version="0.5.0" date="2026-05-12">
