@@ -60,7 +60,7 @@ killall cosmic-panel                     # Reload panel
 - `--filesystem=xdg-data/kpeoplevcard:ro` — read contacts for SMS name resolution
 - `--filesystem=xdg-cache/kdeconnect.daemon:ro` — read MMS attachment cache (daemon uses Qt app name `"kdeconnect.daemon"` → cache at `~/.cache/kdeconnect.daemon/`)
 
-**Debug logs:** `journalctl --user SYSLOG_IDENTIFIER=cosmic-ext-connected -f` (logs land here directly via `tracing_journald`; see `cosmic-applets/Logging and Diagnostics in COSMIC Applets.md` in the Auxis vault for routing details)
+**Debug logs:** `journalctl --user SYSLOG_IDENTIFIER=cosmic-ext-connected -f` (logs land here directly via `tracing_journald`; see `docs/LOGGING.md` for routing details)
 
 ## Project Structure
 
