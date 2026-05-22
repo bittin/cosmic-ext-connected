@@ -134,3 +134,7 @@ Key points:
 - 2-second deduplication window
 - Static variables NOT shared between applet instances
 - Call dedup key includes event type so `callReceived` and `missedCall` for the same number are treated as distinct notifications
+
+## Unsupported: Incoming Ping Notifications
+
+KDE Connect's ping plugin (`kdeconnect_ping`) does not emit D-Bus signals for incoming pings. When a ping is received, `kdeconnectd` handles it internally and sends a desktop notification directly via `KNotification`, bypassing any D-Bus signal mechanism. The applet cannot detect or replace incoming ping notifications. The ping plugin only exposes `sendPing()` methods (outgoing), not incoming signals.

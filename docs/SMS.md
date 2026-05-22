@@ -154,7 +154,18 @@ Caching behavior:
 
 - Re-opening SMS for the same device reuses in-memory conversation data and refreshes in the background.
 - Switching devices clears device-specific SMS state as needed.
-- Contacts are loaded per device from KDE Connect's synced vCard directory and reused for same-device reopens.
+- Contacts are loaded per device from KDE Connect's synced vCard directory and reused for same-device reopens. Loading once at SMS-view open and preserving across re-opens avoids a race where async contact loading completes after the conversation list has already rendered with phone numbers.
+
+### Contact Name Resolution
+
+`ContactLookup` parses vCards from `~/.local/share/kpeoplevcard/kdeconnect-{device-id}/`.
+
+- `get_name_or_number(&address)` — resolves a single address. Used for per-message sender labels in thread view.
+- `get_group_display_name(&addresses, limit)` — resolves multiple addresses into a comma-separated contact list (e.g. "Alice, Bob, Charlie, ..."). Used in the conversation list, thread header, and SMS notifications.
+
+## MMS Attachments
+
+The KDE Connect daemon sets its Qt application name to `"kdeconnect.daemon"` in `kdeconnectd.cpp`. Qt's `QStandardPaths::CacheLocation` resolves to `~/.cache/<applicationName>/`, so MMS attachments are cached at `~/.cache/kdeconnect.daemon/<device-name>/<uniqueIdentifier>` (e.g. `PART_1762553269778`). Files have no extension — the MIME type comes from the message's attachment metadata. The Flatpak manifest must include `--filesystem=xdg-cache/kdeconnect.daemon:ro` for the applet to read cached attachments.
 
 ## Known Constraints
 

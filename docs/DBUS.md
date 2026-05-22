@@ -141,3 +141,14 @@ busctl --user call org.kde.kdeconnect.daemon \
   /modules/kdeconnect/devices/<device-id>/ping \
   org.kde.kdeconnect.device.ping sendPing
 ```
+
+## Pitfalls
+
+### Two `requestConversation` methods (different behavior)
+
+The daemon exposes `requestConversation` on two interfaces with **different behavior**:
+
+- **`org.kde.kdeconnect.device.sms`** (at `/devices/{id}/sms`): Sends a network packet to the phone. The response flows through `addMessages()` which populates the daemon's in-memory `m_conversations` cache. Use this to prime the cache.
+- **`org.kde.kdeconnect.device.conversations`** (at `/devices/{id}`): Creates a `RequestConversationWorker` that reads from a local persistent store and emits `conversationUpdated` D-Bus signals, but does **NOT** populate `m_conversations`.
+
+Thread loading fires both: SMS plugin first (cache priming for replies), then Conversations interface (per-message signals for UI). See `docs/SMS.md` "Cache Priming".

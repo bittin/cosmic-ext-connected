@@ -67,18 +67,24 @@ killall cosmic-panel                     # Reload panel
 ```
 cosmic-ext-connected/
 ├── cosmic-ext-connected/src/
-│   ├── app.rs              # Core: ConnectApplet, Message enum, update()
-│   ├── config.rs           # User preferences (cosmic_config)
-│   ├── notifications.rs    # Cross-process notification deduplication
-│   ├── subscriptions.rs    # D-Bus signal subscriptions
-│   ├── device/             # Device fetch and actions
-│   ├── sms/                # SMS conversations, views, subscriptions
-│   │   ├── send.rs                       # SMS sending (replyToConversation for replies, sendWithoutConversation for new messages)
-│   │   ├── conversation_subscription.rs  # Dual D-Bus request + incremental conversation loading
-│   │   ├── fetch.rs                      # Conversation fetching and caching
-│   │   └── views.rs                      # SMS conversation list and thread views
-│   ├── media/              # Media player controls
-│   └── views/              # Shared UI components
+│   ├── main.rs              # Entry point
+│   ├── app.rs               # Core: ConnectApplet, Message enum, update()
+│   ├── config.rs            # User preferences (cosmic_config)
+│   ├── constants.rs         # Timeouts, page sizes, sentinel values
+│   ├── i18n.rs              # Fluent localization boilerplate
+│   ├── notifications.rs     # Cross-process notification deduplication
+│   ├── subscriptions.rs     # D-Bus signal subscriptions
+│   ├── device/              # mod / fetch / class / actions
+│   ├── media/               # mod / fetch / views
+│   ├── sms/
+│   │   ├── conversation_subscription.rs  # List-loading state machine + cached emit
+│   │   ├── fetch.rs                      # Conversation fetching
+│   │   ├── logical.rs                    # LogicalConversation: reaction-bucket merging
+│   │   ├── send.rs                       # replyToConversation / sendWithoutConversation
+│   │   ├── store.rs                      # SmsConversationStore (cache + merge state)
+│   │   └── views.rs                      # Conversation list and thread views
+│   ├── ui/                  # Device list / device page / shared widgets
+│   └── views/               # Settings, Send-To, view helpers
 │
 ├── data/
 │   ├── io.github.nwxnw.cosmic-ext-connected.desktop
@@ -91,19 +97,20 @@ cosmic-ext-connected/
 ├── io.github.nwxnw.cosmic-ext-connected.json  # Flatpak manifest
 │
 ├── kdeconnect-dbus/src/
-│   ├── daemon.rs           # org.kde.kdeconnect.daemon proxy
-│   ├── device.rs           # Device interface proxy
-│   ├── contacts.rs         # ContactLookup: vCard parsing, name resolution, group display names
-│   └── plugins/            # Per-plugin D-Bus proxies
+│   ├── daemon.rs            # org.kde.kdeconnect.daemon proxy
+│   ├── device.rs            # Device interface proxy
+│   ├── contacts.rs          # ContactLookup: vCard parsing, name resolution, group display names
+│   └── plugins/             # Per-plugin D-Bus proxies
 │
-└── docs/                   # Detailed implementation docs
-    ├── DBUS.md             # D-Bus interface reference
-    ├── SMS.md              # SMS implementation details
-    ├── NOTIFICATIONS.md    # Notification systems
-    ├── MEDIA.md            # Media controls
-    ├── UI_PATTERNS.md      # libcosmic UI patterns
-    ├── LOGGING.md          # Tracing/journald routing for diagnostics
-    └── KNOWN_ISSUES.md     # Known issues and workarounds
+└── docs/                    # Detailed implementation docs
+    ├── DBUS.md              # D-Bus interface reference + pitfalls
+    ├── SMS.md               # SMS loading, merging, optimistic send, MMS cache
+    ├── NOTIFICATIONS.md     # SMS/call/file notifications, dedup, ping limitation
+    ├── MEDIA.md             # Media controls
+    ├── UI_PATTERNS.md       # libcosmic UI patterns
+    ├── LOGGING.md           # Tracing/journald routing for diagnostics
+    ├── KNOWN_ISSUES.md      # Known issues and workarounds
+    └── CHANGELOG.md         # Version history
 ```
 
 ## Key Conventions
@@ -157,78 +164,16 @@ fn is_charging(&self) -> zbus::Result<bool>;
 
 ## Detailed Documentation
 
-For implementation details, see docs/:
-- **[docs/DBUS.md](docs/DBUS.md)** - D-Bus interfaces, testing commands, signal subscription
-- **[docs/SMS.md](docs/SMS.md)** - SMS fetching, caching, loading states, message types
-- **[docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md)** - SMS/call/file notifications, deduplication
-- **[docs/MEDIA.md](docs/MEDIA.md)** - Media player controls, sendAction pattern
-- **[docs/UI_PATTERNS.md](docs/UI_PATTERNS.md)** - libcosmic patterns, ViewMode, popups
-- **[docs/LOGGING.md](docs/LOGGING.md)** - Tracing events to systemd journal via tracing_journald layer
-- **[docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)** - Known issues and workarounds
+Implementation details live under `docs/`. Read the relevant file before working in that area — most cross-cutting pitfalls (the two `requestConversation` methods, `conversationLoaded` unreliability, subscription phase machines, optimistic-send reconciliation, MMS cache path, COSMIC notification daemon's `expire_timeout` quirk, etc.) are documented there, not in this file.
 
-## D-Bus Interface Pitfalls
-
-### Two `requestConversation` methods (different behavior)
-The daemon exposes `requestConversation` on two interfaces with **different behavior**:
-
-- **`org.kde.kdeconnect.device.sms`** (at `/devices/{id}/sms`): Sends a network packet to the phone. The response flows through `addMessages()` which populates the daemon's in-memory `m_conversations` cache. Use this to prime the cache.
-- **`org.kde.kdeconnect.device.conversations`** (at `/devices/{id}`): Creates a `RequestConversationWorker` that reads from a local persistent store and emits `conversationUpdated` D-Bus signals, but does **NOT** populate `m_conversations`.
-
-We fire both: SMS plugin first (cache priming), then Conversations interface (per-message signals for UI).
-
-### Contact loading is per-device and loaded once
-`ContactLookup` parses vCard files from `~/.local/share/kpeoplevcard/kdeconnect-{device-id}/`. Contacts are loaded once when the SMS view opens and preserved across view re-opens for the same device. They are only cleared when switching to a different device. This avoids a race condition where async contact loading completes after the conversation list has already rendered with phone numbers.
-
-### Group display names
-`ContactLookup::get_group_display_name(&addresses, limit)` resolves multiple addresses into comma-separated contact names (e.g. "Alice, Bob, Charlie, ..."). Used in the conversation list, thread header, and SMS notifications. Per-message sender labels use `get_name_or_number` for the individual message sender.
-
-### `conversationLoaded` signal count is unreliable
-`conversationLoaded(threadId, messageCount)` fires when the Conversations interface finishes reading its local persistent store. The `messageCount` reflects **how many messages were in the local store**, not the phone's total. After a reboot, the local store may have 0-1 messages even for conversations with hundreds. Never use this count for pagination decisions — use `messages.len() >= messages_per_page` as a heuristic instead.
-
-### Message subscription runs until the conversation closes
-`conversation_message_subscription` in `subscriptions.rs` uses a state machine (`Init` → `Listening`) that runs as long as the conversation is open:
-- **Phase 1:** Local store signals (`conversationUpdated` per message, then `conversationLoaded`). Hard timeout safety net (20s) in case `conversationLoaded` never arrives.
-- **Phase 2:** After `conversationLoaded`, `phone_deadline` (8s, `PHONE_RESPONSE_TIMEOUT_MS`) waits for the phone to respond. When it fires, `ConversationLoadComplete` is emitted but the subscription continues listening.
-- **Phase 3:** After load complete, the subscription uses a 30s heartbeat sleep while listening for new messages (including sent message echoes for optimistic reconciliation).
-- The subscription is cancelled when iced drops it (`conversation_load_active` set to false in `CloseConversation`).
-- There is no activity timeout. This matches the conversation list subscription pattern and all three reference implementations.
-
-`initial_load_complete` tracks whether the initial load phase is done (Phase 2 → Phase 3 transition). This flag gates scroll prefetch — prefetch must wait until initial load finishes to avoid collecting duplicate D-Bus signals.
-
-### Scroll prefetch must wait for initial load to complete
-`MessageThreadScrolled` triggers `fetch_older_messages_async` when the user scrolls near the top. This fires a separate `requestConversation` which picks up D-Bus signals on the same session bus. If the initial message load is still running, the prefetch collects the **same signals** and `OlderMessagesLoaded` prepends duplicates. Guard: `self.initial_load_complete` in the prefetch condition. Safety net: `OlderMessagesLoaded` filters `older_msgs` against `known_message_ids` before prepending.
-
-### Conversation list subscription runs until the view closes
-`conversation_list_subscription` in `conversation_subscription.rs` uses a state machine (`Init` → `EmittingCached` → `Listening`) that runs as long as the SMS view is open:
-- **`phone_deadline`** — absolute `Instant` for how long to show the sync spinner. 8s on cold start (no cache), 3s on warm start (has cache). When it fires, `ConversationSyncComplete` is emitted to dismiss the UI spinner, but the subscription continues listening silently.
-- After the phone deadline fires, the subscription uses a 30s heartbeat sleep to keep the unfold alive while waiting for signals.
-- The subscription is cancelled when iced drops it (`conversation_list_subscription_active` set to false in `CloseSmsView` or `SmsError`).
-- There is no activity timeout or hard timeout. This matches the pattern used by KDE Connect SMS desktop, GSConnect, and hepp3n — none of which have a "loading done" concept.
-
-Cached conversations from `activeConversations()` are emitted immediately via `EmittingCached` for instant UI display.
-
-### COSMIC's notification daemon ignores `expire_timeout`
-COSMIC's notification daemon does not respect the `expire_timeout` hint from the freedesktop notification spec. All notifications display for the daemon's fixed duration regardless of the value passed. To implement user-configurable notification duration, notifications must be created with `Timeout::Never` (expire_timeout=0) to prevent the daemon from auto-closing them, then explicitly closed via `NotificationHandle::close()` after the configured timeout. This is handled by `show_and_auto_close()` in `app.rs`.
-
-### Ping notifications cannot be intercepted via D-Bus
-KDE Connect's ping plugin (`kdeconnect_ping`) does not emit D-Bus signals for incoming pings. When a ping is received, `kdeconnectd` handles it internally and sends a desktop notification directly via `KNotification`, bypassing any D-Bus signal mechanism. The applet cannot detect or replace incoming ping notifications. The ping plugin only exposes `sendPing()` methods (outgoing), not incoming signals.
-
-### SMS sending: `replyToConversation` for replies, `sendWithoutConversation` for new messages
-Replies use `replyToConversation(threadId, message, attachments)`, which looks up addresses from the daemon's `m_conversations[threadId]` cache. This cache is reliably primed when the user opens a conversation (our SMS plugin `requestConversation` call populates it via `addMessages()`). Using `replyToConversation` preserves thread context for group messages.
-
-**Caveat:** `replyToConversation` silently no-ops if the cache is empty (no D-Bus error). The KDE Connect desktop SMS app uses it the same way with no fallback. See `reference/reply-to-conversation-analysis.md` for detection/fallback options if this proves unreliable.
-
-New messages (no existing thread) use `sendWithoutConversation(addresses, message, attachments)` with explicit addresses. Both methods are on the same Conversations D-Bus interface.
-
-### Optimistic sent message display
-When a reply is sent successfully (`SmsSendResult(Ok(_))`), an optimistic `SmsMessage` with `OPTIMISTIC_MESSAGE_UID` (`i32::MIN`) is inserted into `self.messages` immediately. This provides instant visual feedback — the message appears as a right-aligned bubble with a spinning "Sending..." indicator instead of a timestamp.
-
-When the phone echoes the real message back via `ConversationMessageReceived`, the optimistic entry is reconciled: body + type + 5-minute time window matching upgrades the sentinel UID and timestamp in-place. The message subscription runs for the lifetime of the conversation view, so the echo is caught naturally without any subscription restart.
-
-Guard: `sms_sending_body.is_some()` prevents duplicate insertion if the echo arrives before `SmsSendResult`. The existing `confirmed_send` logic handles that edge case.
-
-### KDE Connect daemon cache path is `kdeconnect.daemon`, not `kdeconnect`
-KDE Connect's daemon sets its Qt application name to `"kdeconnect.daemon"` in `kdeconnectd.cpp`. Qt's `QStandardPaths::CacheLocation` resolves to `~/.cache/<applicationName>/`, so MMS attachments are cached at `~/.cache/kdeconnect.daemon/<device-name>/<uniqueIdentifier>` (e.g. `PART_1762553269778`). Files have no extension — the MIME type comes from the message's attachment metadata. The Flatpak manifest must include `--filesystem=xdg-cache/kdeconnect.daemon:ro` for the applet to read cached attachments.
+- **[docs/DBUS.md](docs/DBUS.md)** — D-Bus interface reference, testing commands, signal subscription, surface-level pitfalls
+- **[docs/SMS.md](docs/SMS.md)** — Conversation list and thread loading, reaction-bucket merging, sending and optimistic reconciliation, MMS attachment cache
+- **[docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md)** — SMS/call/file notifications, cross-process deduplication, ping limitation
+- **[docs/MEDIA.md](docs/MEDIA.md)** — Media player controls, `sendAction` pattern
+- **[docs/UI_PATTERNS.md](docs/UI_PATTERNS.md)** — libcosmic patterns, ViewMode, popups
+- **[docs/LOGGING.md](docs/LOGGING.md)** — Tracing events to systemd journal via `tracing_journald`
+- **[docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)** — Known issues and workarounds
+- **[docs/CHANGELOG.md](docs/CHANGELOG.md)** — Version history
 
 ## External Resources
 
