@@ -6,22 +6,45 @@
   <developer id="io.github.nwxnw">
     <name>nwxnw</name>
   </developer>
+
   <name>Connected</name>
+
   <summary>Phone connectivity applet for the COSMIC desktop</summary>
+  <summary xml:lang="cs">Applet k propojení telefonu v prostředí COSMIC</summary>
+
   <description>
     <p>Connected is a panel applet for the COSMIC desktop environment that provides
     phone-to-desktop connectivity using KDE Connect as a backend.</p>
+    <p xml:lang="cs">Connected je applet panelu pro prostředí COSMIC, který poskytuje
+    propojení telefonu s počítačem pomocí KDE Connect jako backendu.</p>
+
     <p>Features include:</p>
+    <p xml:lang="cs">Funkce zahrnují:</p>
+
     <ul>
       <li>Device battery status and connectivity monitoring</li>
+      <li xml:lang="cs">Sledování stavu baterie zařízení a stavu připojení</li>
+  
       <li>SMS messaging with conversation threads</li>
+      <li xml:lang="cs">SMS zprávy s vlákny konverzací</li>
+  
       <li>Smart SMS threading that merges conversations iOS reactions split into multiple threads on Android</li>
+      <li xml:lang="cs">Chytré SMS vlákno, které slučuje konverzace a reakce z iOS rozdělené do více vláken na Androidu</li>
+  
       <li>Media player remote control</li>
+      <li xml:lang="cs">Dálkové ovládání přehrávače médií</li>
+  
       <li>Desktop notifications for calls, messages, and file transfers</li>
+      <li xml:lang="cs">Oznámení na ploše pro hovory, zprávy a přenosy souborů</li>
+  
       <li>Ping your phone to find it</li>
+      <li xml:lang="cs">Pingnutí telefonu pro jeho nalezení</li>
+  
       <li>File sharing between devices</li>
+      <li xml:lang="cs">Sdílení souborů mezi zařízeními</li>
     </ul>
   </description>
+
   <url type="homepage">https://github.com/nwxnw/cosmic-ext-connected</url>
   <url type="bugtracker">https://github.com/nwxnw/cosmic-ext-connected/issues</url>
   <url type="vcs-browser">https://github.com/nwxnw/cosmic-ext-connected</url>
@@ -48,11 +71,17 @@
     <keyword>phone</keyword>
     <keyword>SMS</keyword>
     <keyword>notifications</keyword>
+
+    <keyword xml:lang="cs">telefon</keyword>
+    <keyword xml:lang="cs">mobil</keyword>
+    <keyword xml:lang="cs">notifikace</keyword>
+    <keyword xml:lang="cs">oznámení</keyword>
   </keywords>
   <screenshots>
     <screenshot type="default">
       <image>https://raw.githubusercontent.com/nwxnw/cosmic-ext-connected/main/screenshots/connected-applet.png</image>
       <caption>Connected applet showing device page</caption>
+      <caption xml:lang="cs">Applet Connected zobrazující stránku se zařízeními</caption>
     </screenshot>
   </screenshots>
   <content_rating type="oars-1.1" />

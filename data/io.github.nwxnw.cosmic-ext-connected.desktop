@@ -1,6 +1,7 @@
 [Desktop Entry]
 Name=Connected
 Comment=Phone connectivity via KDE Connect
+Comment[cs]=Propojení telefonu přes KDE Connect
 Type=Application
 Exec=cosmic-ext-connected
 Icon=io.github.nwxnw.cosmic-ext-connected-symbolic
