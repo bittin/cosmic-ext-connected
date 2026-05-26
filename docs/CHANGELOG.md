@@ -2,6 +2,15 @@
 
 All notable changes to Connected will be documented in this file.
 
+## [0.5.2] - 2026-05-27
+
+### Added
+- **Czech translation.** Full Czech (`cs`) localization of the UI strings, plus translated AppStream metadata (summary, description, keywords) and the desktop-entry comment. Contributed by lorduskordus (#35).
+
+### Changed
+- **Updated COSMIC dependencies** (libcosmic, cosmic-protocols, cosmic-panel, winit) to current revisions, including the `selected_fill` field now required by `cosmic::iced::widget::text::Style`. No user-facing behavior change.
+- **Store listing now states the KDE Connect requirement.** The AppStream description now makes explicit that KDE Connect must be installed on the computer and the KDE Connect companion app on the phone.
+
 ## [0.5.1] - 2026-05-15
 
 ### Changed
@@ -106,7 +115,7 @@ All notable changes to Connected will be documented in this file.
 - Settings panel with notification privacy options and configurable timeout
 - Custom panel icons (connected/disconnected states)
 - Accent color theming
-- Swedish translations
+- Swedish translations (contributed by Luna Jernberg / bittin)
 - Flatpak packaging support
 
 ### Changed
