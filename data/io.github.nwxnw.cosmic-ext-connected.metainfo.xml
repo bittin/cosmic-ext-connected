@@ -17,6 +17,7 @@
     phone-to-desktop connectivity using KDE Connect as a backend.</p>
     <p xml:lang="cs">Connected je applet panelu pro prostředí COSMIC, který poskytuje
     propojení telefonu s počítačem pomocí KDE Connect jako backendu.</p>
+    <p>Connected requires KDE Connect to be installed on your computer, and the KDE Connect companion app on your phone.</p>
 
     <p>Features include:</p>
     <p xml:lang="cs">Funkce zahrnují:</p>
@@ -24,22 +25,22 @@
     <ul>
       <li>Device battery status and connectivity monitoring</li>
       <li xml:lang="cs">Sledování stavu baterie zařízení a stavu připojení</li>
-  
+
       <li>SMS messaging with conversation threads</li>
       <li xml:lang="cs">SMS zprávy s vlákny konverzací</li>
-  
+
       <li>Smart SMS threading that merges conversations iOS reactions split into multiple threads on Android</li>
       <li xml:lang="cs">Chytré SMS vlákno, které slučuje konverzace a reakce z iOS rozdělené do více vláken na Androidu</li>
-  
+
       <li>Media player remote control</li>
       <li xml:lang="cs">Dálkové ovládání přehrávače médií</li>
-  
+
       <li>Desktop notifications for calls, messages, and file transfers</li>
       <li xml:lang="cs">Oznámení na ploše pro hovory, zprávy a přenosy souborů</li>
-  
+
       <li>Ping your phone to find it</li>
       <li xml:lang="cs">Pingnutí telefonu pro jeho nalezení</li>
-  
+
       <li>File sharing between devices</li>
       <li xml:lang="cs">Sdílení souborů mezi zařízeními</li>
     </ul>
@@ -86,6 +87,11 @@
   </screenshots>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.5.2" date="2026-05-27">
+      <description>
+        <p>Add Czech translation and update COSMIC dependencies.</p>
+      </description>
+    </release>
     <release version="0.5.1" date="2026-05-15">
       <description>
         <p>Update metainfo for COSMIC Store.</p>
