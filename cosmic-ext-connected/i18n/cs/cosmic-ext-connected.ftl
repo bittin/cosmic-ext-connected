@@ -56,6 +56,7 @@ media = Média
 media-controls = Ovládání médií
 notifications = Oznámení
 device-must-be-connected = Pro použití akcí musí být zařízení připojeno
+device-offline-actions-unavailable = Ostatní akce vyžadují, aby bylo toto zařízení online.
 send-to = Odeslat na { $device }
 send-to-title = Odeslat na { $device }
 share-text-with-title = Sdílet text s { $device }
@@ -67,6 +68,7 @@ find-phone-failed = Nepodařilo se prozvonit telefon
 # Pairing
 pair = Spárovat
 unpair = Zrušit párování
+unpair-offline-note = Toto zařízení je offline. Zrušení párování se na vaší straně projeví okamžitě; druhé zařízení dokončí zrušení párování při příštím připojení.
 accept = Přijmout
 reject = Odmítnout
 cancel = Zrušit
