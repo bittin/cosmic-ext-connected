@@ -790,8 +790,6 @@ impl Application for ConnectApplet {
                     // An offline device would re-render the "must be connected" page
                     // after unpair - pop back to the list so the status bar carries
                     // the result. Reachable devices stay so you can re-pair in place.
-                    // item 3: when hidden_ids lands, also drop device_id from it here
-                    // (consider a dedicated UnpairResult to gate the prune on success).
                     let reachable = self
                         .devices
                         .iter()
