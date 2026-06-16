@@ -16,6 +16,8 @@ pub struct Config {
     pub show_offline_devices: bool,
     /// Show unpaired non-mobile devices (desktops, laptops, TVs) in device list
     pub show_non_mobile_devices: bool,
+    /// Whether the collapsible "offline" device group is expanded
+    pub group_offline_expanded: bool,
     /// Enable desktop notifications for phone notifications
     pub forward_notifications: bool,
     /// Number of SMS messages to load per page/request
@@ -49,6 +51,7 @@ impl Default for Config {
             show_battery_percentage: true,
             show_offline_devices: true,
             show_non_mobile_devices: false,
+            group_offline_expanded: false,
             forward_notifications: true,
             messages_per_page: 10,
             sms_notifications: true,

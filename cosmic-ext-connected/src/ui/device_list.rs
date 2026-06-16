@@ -1,6 +1,6 @@
 //! Device list view for the applet popup.
 
-use crate::app::{DeviceInfo, Message};
+use crate::app::{DeviceInfo, GroupKind, Message};
 use crate::config::Config;
 use crate::device::DeviceClass;
 use crate::fl;
@@ -45,36 +45,11 @@ pub fn view<'a>(
         .align_y(Alignment::Center),
     );
 
-    // Filter devices based on config
-    let filtered_devices: Vec<&DeviceInfo> = devices
-        .iter()
-        .filter(|d| {
-            let class = DeviceClass::from_device_type(&d.device_type);
-            // Hide unpaired non-mobile devices unless explicitly enabled.
-            // Paired non-mobile devices always show (same rule as mobile).
-            if !d.is_paired && !class.is_mobile() && !config.show_non_mobile_devices {
-                return false;
-            }
-            // Always show reachable devices
-            if d.is_reachable {
-                return true;
-            }
-            // Show offline paired devices only if config allows
-            if d.is_paired && config.show_offline_devices {
-                return true;
-            }
-            false
-        })
-        .collect();
-
-    let device_rows: Vec<Element<Message>> = filtered_devices
-        .iter()
-        .map(|device| device_row(device, config))
-        .collect();
+    let groups = partition_devices(devices, config);
 
     let mut content = column![header].spacing(sp.space_xxxs);
 
-    // Status message bar (for feedback like "Ping sent!", "Sharing file...")
+    // Status message bar
     if let Some(msg) = status_message {
         content = content.push(
             widget::container(text::caption(msg))
@@ -84,17 +59,109 @@ pub fn view<'a>(
         );
     }
 
-    if device_rows.is_empty() {
+    if groups.is_empty() {
         content = content.push(
             widget::container(text::caption(fl!("no-devices")))
                 .padding(sp.space_s)
                 .width(Length::Fill),
         );
     } else {
-        content = content.push(column(device_rows).spacing(sp.space_xxs));
+        let mut list = column![].spacing(sp.space_xs);
+        for (kind, members) in groups {
+            let collapsible = matches!(kind, GroupKind::Offline);
+            if collapsible {
+                let expanded = config.group_offline_expanded;
+                list = list.push(group_header(kind, members.len(), expanded));
+                if expanded {
+                    let rows: Vec<Element<Message>> =
+                        members.iter().map(|d| device_row(d, config)).collect();
+                    list = list.push(column(rows).spacing(sp.space_xxs));
+                }
+            } else {
+                let rows: Vec<Element<Message>> =
+                    members.iter().map(|d| device_row(d, config)).collect();
+                list = list.push(column(rows).spacing(sp.space_xxs));
+            }
+        }
+        content = content.push(list);
     }
 
     widget::container(content.padding(sp.space_xxs)).into()
+}
+
+/// Render a collapsible group header: "Label (N)" + disclosure chevron.
+/// Only used for Offline.
+fn group_header<'a>(kind: GroupKind, count: usize, expanded: bool) -> Element<'a, Message> {
+    let sp = cosmic::theme::spacing();
+
+    let label = match kind {
+        GroupKind::Offline => fl!("offline"),
+        _ => String::new(),
+    };
+    let heading = format!("{} ({})", label, count);
+
+    let chevron = if expanded {
+        "go-down-symbolic"
+    } else {
+        "go-next-symbolic"
+    };
+
+    let header_row = row![
+        text::caption(heading),
+        widget::space::horizontal(),
+        icon::from_name(chevron).size(16),
+    ]
+    .spacing(sp.space_xs)
+    .align_y(Alignment::Center);
+
+    applet::menu_button(header_row)
+        .on_press(Message::ToggleDeviceGroup(kind))
+        .into()
+}
+
+/// Partition devices into ordered display groups
+/// Order: Connected -> Pairing Requests -> Available -> Offline
+fn partition_devices<'a>(
+    devices: &'a [DeviceInfo],
+    config: &Config,
+) -> Vec<(GroupKind, Vec<&'a DeviceInfo>)> {
+    let mut connected = Vec::new();
+    let mut pairing = Vec::new();
+    let mut available = Vec::new();
+    let mut offline = Vec::new();
+
+    for d in devices {
+        if d.is_pair_requested || d.is_pair_requested_by_peer {
+            pairing.push(d);
+        } else if d.is_reachable && d.is_paired {
+            connected.push(d);
+        } else if d.is_reachable && !d.is_paired {
+            // "Available to pair". Preserve today's gate: unpaired non-mobile
+            // devices stay hidden unless the user opted in.
+            let class = DeviceClass::from_device_type(&d.device_type);
+            if class.is_mobile() || config.show_non_mobile_devices {
+                available.push(d);
+            }
+        } else if !d.is_reachable && d.is_paired {
+            offline.push(d);
+        }
+        // else: !reachable && !paired -> pure noise, dropped
+    }
+
+    let mut groups = Vec::new();
+    if !connected.is_empty() {
+        groups.push((GroupKind::Connected, connected));
+    }
+    if !pairing.is_empty() {
+        groups.push((GroupKind::PairingRequests, pairing));
+    }
+    if !available.is_empty() {
+        groups.push((GroupKind::Available, available));
+    }
+    if !offline.is_empty() {
+        groups.push((GroupKind::Offline, offline));
+    }
+    groups
 }
 
 /// Render a single device row.

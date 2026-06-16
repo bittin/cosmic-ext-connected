@@ -140,6 +140,8 @@ pub enum Message {
     BackFromNotificationSettings,
     /// Toggle a specific setting
     ToggleSetting(SettingKey),
+    /// Expand/collapse a collapsible device group (Offline)
+    ToggleDeviceGroup(GroupKind),
     /// Set the notification timeout duration (seconds)
     SetNotificationTimeout(u32),
 
@@ -292,6 +294,16 @@ pub enum SettingKey {
     CallShowName,
     FileNotifications,
     MergeReactionThreads,
+}
+
+/// The device-list groups, in display order
+/// Only `Offline` is collapsible
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GroupKind {
+    Connected,
+    PairingRequests,
+    Available,
+    Offline,
 }
 
 /// Basic device information for display.
@@ -1008,6 +1020,15 @@ impl Application for ConnectApplet {
                 self.config.notification_timeout_secs =
                     secs.clamp(MIN_TIMEOUT_SECS, MAX_TIMEOUT_SECS);
                 tracing::debug!("Settings updated");
+                if let Err(err) = self.config.save() {
+                    tracing::error!(?err, "Failed to save config");
+                }
+            }
+            Message::ToggleDeviceGroup(kind) => {
+                if kind == GroupKind::Offline {
+                    self.config.group_offline_expanded = !self.config.group_offline_expanded;
+                }
+
                 if let Err(err) = self.config.save() {
                     tracing::error!(?err, "Failed to save config");
                 }
