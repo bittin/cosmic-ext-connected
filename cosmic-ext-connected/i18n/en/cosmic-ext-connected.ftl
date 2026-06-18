@@ -98,20 +98,13 @@ notification-settings = Notification settings
 
 # SMS Notifications settings
 settings-sms-section = SMS messages
-settings-sms-notifications = Show SMS messages
+settings-sms-notifications = Show notifications
 settings-sms-show-sender = Show sender
 settings-sms-show-content = Show content
 
-# SMS behavior settings
-settings-sms-merge-reaction-threads = Merge reaction-bucket threads
-settings-sms-merge-reaction-threads-desc =
-   Group iOS reactions with the conversation they're replying to. Turning this
-   off restores per-thread display but can cause some replies to be delivered
-   twice on the recipient's side.
-
 # Call Notifications settings
 settings-call-section = Calls
-settings-call-notifications = Show calls
+settings-call-notifications = Show notifications
 settings-call-show-name = Show caller name
 settings-call-show-number = Show phone number
 
@@ -128,7 +121,7 @@ missed-call-from = Missed call from { $name }
 
 # File Notifications settings
 settings-file-section = File transfers
-settings-file-notifications = Show file transfers
+settings-file-notifications = Show notifications
 
 # Notification timeout settings
 settings-notification-timeout = Duration
@@ -201,5 +194,5 @@ loading-attachment = Loading attachment...
 attachment-failed = Failed to load attachment
 
 # Reaction-thread merging UI
-merge-toggle-on-tooltip = Reaction threads are merged. Click to show separately.
-merge-toggle-off-tooltip = Reaction threads are shown separately. Click to merge.
+merge-toggle-on-tooltip = Reaction replies are grouped into their conversation. Click to show as separate threads.
+merge-toggle-off-tooltip = Reaction-reply threads are shown separately - replies may be duplicated. Click to group them.

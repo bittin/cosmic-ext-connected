@@ -106,14 +106,6 @@ settings-sms-show-content-desc = Visa förhandsgranskning av meddelande i aviser
 settings-sms-show-sender = Visa avsändarnamn
 settings-sms-show-sender-desc = Visa vem som skickade meddelandet
 
-
-# Inställningar för SMS-beteende
-settings-sms-merge-reaction-threads = Sammanfoga trådar med många reaktioner
-settings-sms-merge-reaction-threads-desc =
-   Grupper iOS reaktioner med konversationen de svarar på. Om du stänger av detta
-   återställs visningen per tråd, men det kan leda till att vissa svar levereras
-   två gånger på mottagarsidan.
-
 # Inställningar för samtalsaviseringar
 settings-call-notifications = Samtalsaviseringar
 settings-call-notifications-desc = Visa skrivbordsaviseringar för inkommande och missade samtal

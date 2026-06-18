@@ -102,13 +102,6 @@ settings-sms-notifications = Zobrazit SMS zprávy
 settings-sms-show-sender = Zobrazit odesílatele
 settings-sms-show-content = Zobrazit obsah
 
-# SMS behavior settings
-settings-sms-merge-reaction-threads = Sloučit reakční vlákna
-settings-sms-merge-reaction-threads-desc =
-   Seskupí reakce z iOS ke konverzaci, na kterou odpovídají. Vypnutí obnoví
-   zobrazení po vláknech, ale může způsobit, že některé odpovědi budou na straně
-   příjemce doručeny dvakrát.
-
 # Call Notifications settings
 settings-call-section = Hovory
 settings-call-notifications = Zobrazit hovory
