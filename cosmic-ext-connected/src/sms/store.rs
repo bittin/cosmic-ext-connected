@@ -13,6 +13,7 @@ use crate::sms::{
     view_new_message, ConversationListParams, MessageThreadParams, NewMessageParams,
 };
 use crate::subscriptions::conversation_message_subscription;
+use crate::constants::sms::MESSAGES_PER_PAGE;
 use cosmic::iced::widget::scrollable;
 use cosmic::iced::{clipboard, Subscription};
 use cosmic::widget;
@@ -641,7 +642,7 @@ impl SmsConversationStore {
                     ) {
                         self.sms_loading_state = SmsLoadingState::LoadingMoreMessages;
                         let start_index = self.messages_loaded_count;
-                        let count = ctx.config.messages_per_page;
+                        let count = MESSAGES_PER_PAGE;
 
                         return (
                             cosmic::app::Task::perform(
@@ -866,7 +867,7 @@ impl SmsConversationStore {
                 // Update pagination state via helper (handles merged-set math).
                 self.messages_loaded_count = self.messages.len() as u32;
                 self.messages_has_more = self
-                    .compute_messages_has_more(total_count, ctx.config.messages_per_page as usize);
+                    .compute_messages_has_more(total_count, MESSAGES_PER_PAGE as usize);
 
                 // Scroll to bottom to show latest messages
                 if !self.messages.is_empty() {
@@ -916,7 +917,7 @@ impl SmsConversationStore {
                 self.messages.sort_by_key(|m| m.date);
                 self.messages_loaded_count = self.messages.len() as u32;
                 self.messages_has_more = self
-                    .compute_messages_has_more(total_count, ctx.config.messages_per_page as usize);
+                    .compute_messages_has_more(total_count, MESSAGES_PER_PAGE as usize);
                 if let Some(newest) = self.messages.iter().map(|m| m.date).max() {
                     if let Some(device_id) = self.sms_device_id.clone() {
                         let key = (device_id, thread_id);
@@ -1434,7 +1435,7 @@ impl SmsConversationStore {
     /// per-thread message subscription. The unconditional SMS/call notification
     /// subscriptions stay in `app.rs::subscription()` because they're gated on
     /// device reachability + config, not store state.
-    pub fn subscriptions(&self, config: &Config) -> Vec<Subscription<Message>> {
+    pub fn subscriptions(&self) -> Vec<Subscription<Message>> {
         let mut subs: Vec<Subscription<Message>> = Vec::new();
 
         // Conversation list subscription (incremental loading + background sync)
@@ -1454,7 +1455,7 @@ impl SmsConversationStore {
         // distinct `thread_id` values produce distinct running subscriptions.
         if self.conversation_load_active {
             if let Some(device_id) = self.sms_device_id.clone() {
-                let messages_per_page = config.messages_per_page;
+                let messages_per_page = MESSAGES_PER_PAGE;
                 for &thread_id in &self.current_merged_thread_ids {
                     subs.push(Subscription::run_with(
                         (

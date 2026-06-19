@@ -21,6 +21,9 @@ pub mod dbus {
 
 /// SMS conversation and message loading constants.
 pub mod sms {
+    /// SMS messages fetched per request (thread open + each older-message page).
+    pub const MESSAGES_PER_PAGE: u32 = 10;
+
     /// Timeout for conversation loading when cache exists (seconds).
     /// Shorter since we only need incremental updates.
     pub const CONVERSATION_TIMEOUT_CACHED_SECS: u64 = 3;

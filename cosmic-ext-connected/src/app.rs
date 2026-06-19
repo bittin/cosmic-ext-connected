@@ -1781,7 +1781,7 @@ impl Application for ConnectApplet {
         }
 
         // SMS-state-driven subscriptions (conversation list + per-thread messages)
-        subscriptions.extend(self.sms.subscriptions(&self.config));
+        subscriptions.extend(self.sms.subscriptions());
 
         // Note: File notifications are handled in the main dbus_signal_subscription
         // to avoid issues with multiple D-Bus connections and match rules

@@ -12,8 +12,6 @@ pub const APP_ID: &str = "io.github.nwxnw.cosmic-ext-connected";
 pub struct Config {
     /// Whether the collapsible "offline" device group is expanded
     pub group_offline_expanded: bool,
-    /// Number of SMS messages to load per page/request
-    pub messages_per_page: u32,
     /// Enable desktop notifications for incoming SMS messages
     pub sms_notifications: bool,
     /// Show message content in SMS notifications (privacy)
@@ -41,7 +39,6 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             group_offline_expanded: false,
-            messages_per_page: 10,
             sms_notifications: true,
             sms_notification_show_content: true,
             sms_notification_show_sender: true,
