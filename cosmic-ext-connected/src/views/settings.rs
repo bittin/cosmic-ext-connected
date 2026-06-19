@@ -28,12 +28,6 @@ pub fn view_settings(config: &Config) -> Element<'_, Message> {
     // General section
     let general_section = settings::section()
         .add(
-            settings::item::builder(fl!("settings-offline"))
-                .toggler(config.show_offline_devices, move |_| {
-                    Message::ToggleSetting(SettingKey::ShowOfflineDevices)
-                }),
-        )
-        .add(
             settings::item::builder(fl!("settings-non-mobile"))
                 .toggler(config.show_non_mobile_devices, move |_| {
                     Message::ToggleSetting(SettingKey::ShowNonMobileDevices)

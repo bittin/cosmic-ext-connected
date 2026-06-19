@@ -80,7 +80,6 @@ device-not-paired = Zařízení není spárováno
 device-offline = Zařízení je offline
 
 # Settings page
-settings-offline = Zobrazit offline zařízení
 settings-non-mobile = Zobrazit nemobilní zařízení
 
 # Device type captions (shown under device name on device page)

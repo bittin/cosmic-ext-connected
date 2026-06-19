@@ -10,8 +10,6 @@ pub const APP_ID: &str = "io.github.nwxnw.cosmic-ext-connected";
 #[derive(Debug, Clone, Serialize, Deserialize, CosmicConfigEntry, PartialEq, Eq)]
 #[version = 7]
 pub struct Config {
-    /// Show offline devices in device list
-    pub show_offline_devices: bool,
     /// Show unpaired non-mobile devices (desktops, laptops, TVs) in device list
     pub show_non_mobile_devices: bool,
     /// Whether the collapsible "offline" device group is expanded
@@ -44,7 +42,6 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            show_offline_devices: true,
             show_non_mobile_devices: false,
             group_offline_expanded: false,
             messages_per_page: 10,
