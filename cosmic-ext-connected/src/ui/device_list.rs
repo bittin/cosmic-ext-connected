@@ -78,8 +78,7 @@ pub fn view<'a>(
                     list = list.push(column(rows).spacing(sp.space_xxs));
                 }
             } else {
-                let rows: Vec<Element<Message>> =
-                    members.iter().map(|d| device_row(d)).collect();
+                let rows: Vec<Element<Message>> = members.iter().map(|d| device_row(d)).collect();
                 list = list.push(column(rows).spacing(sp.space_xxs));
             }
         }
@@ -121,8 +120,7 @@ fn group_header<'a>(kind: GroupKind, count: usize, expanded: bool) -> Element<'a
 
 /// Partition devices into ordered display groups
 /// Order: Connected -> Pairing Requests -> Available -> Offline
-fn partition_devices(
-    devices: &[DeviceInfo]) -> Vec<(GroupKind, Vec<&DeviceInfo>)> {
+fn partition_devices(devices: &[DeviceInfo]) -> Vec<(GroupKind, Vec<&DeviceInfo>)> {
     let mut connected = Vec::new();
     let mut pairing = Vec::new();
     let mut available = Vec::new();

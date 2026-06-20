@@ -118,7 +118,6 @@ fn should_show_notification(dedup_file: &str, key: &str) -> bool {
     should_notify
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

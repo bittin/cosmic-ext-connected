@@ -4,6 +4,8 @@
 
 use crate::app::{LoadingPhase, Message, SmsLoadingState};
 use crate::config::Config;
+use crate::constants::notifications::NORMAL_NOTIFICATION_TIMEOUT_MS;
+use crate::constants::sms::MESSAGES_PER_PAGE;
 use crate::fl;
 use crate::sms::logical::{merge_into_logical, split_candidate_thread_ids, LogicalConversation};
 use crate::sms::{
@@ -12,8 +14,6 @@ use crate::sms::{
     view_new_message, ConversationListParams, MessageThreadParams, NewMessageParams,
 };
 use crate::subscriptions::conversation_message_subscription;
-use crate::constants::sms::MESSAGES_PER_PAGE;
-use crate::constants::notifications::NORMAL_NOTIFICATION_TIMEOUT_MS;
 use cosmic::iced::widget::scrollable;
 use cosmic::iced::{clipboard, Subscription};
 use cosmic::widget;
@@ -866,8 +866,8 @@ impl SmsConversationStore {
 
                 // Update pagination state via helper (handles merged-set math).
                 self.messages_loaded_count = self.messages.len() as u32;
-                self.messages_has_more = self
-                    .compute_messages_has_more(total_count, MESSAGES_PER_PAGE as usize);
+                self.messages_has_more =
+                    self.compute_messages_has_more(total_count, MESSAGES_PER_PAGE as usize);
 
                 // Scroll to bottom to show latest messages
                 if !self.messages.is_empty() {
@@ -916,8 +916,8 @@ impl SmsConversationStore {
                 // converge on the same final values regardless of arrival order.
                 self.messages.sort_by_key(|m| m.date);
                 self.messages_loaded_count = self.messages.len() as u32;
-                self.messages_has_more = self
-                    .compute_messages_has_more(total_count, MESSAGES_PER_PAGE as usize);
+                self.messages_has_more =
+                    self.compute_messages_has_more(total_count, MESSAGES_PER_PAGE as usize);
                 if let Some(newest) = self.messages.iter().map(|m| m.date).max() {
                     if let Some(device_id) = self.sms_device_id.clone() {
                         let key = (device_id, thread_id);
@@ -1251,7 +1251,9 @@ impl SmsConversationStore {
                                 .body(&body)
                                 .icon("phone-symbolic")
                                 .appname("Connected")
-                                .timeout(notify_rust::Timeout::Milliseconds(NORMAL_NOTIFICATION_TIMEOUT_MS));
+                                .timeout(notify_rust::Timeout::Milliseconds(
+                                    NORMAL_NOTIFICATION_TIMEOUT_MS,
+                                ));
                             match tokio::task::spawn_blocking(move || notification.show()).await {
                                 Ok(Ok(_handle)) => tracing::debug!("SMS notification shown"),
                                 Ok(Err(e)) => {

@@ -3,7 +3,7 @@
 use crate::config::Config;
 use crate::constants::{
     dbus::{PENDING_REFRESH_TICK_SECS, SIGNAL_REFRESH_DEBOUNCE_SECS},
-    notifications::{NORMAL_NOTIFICATION_TIMEOUT_MS,CALL_RING_TIMEOUT_MS},
+    notifications::{CALL_RING_TIMEOUT_MS, NORMAL_NOTIFICATION_TIMEOUT_MS},
     refresh,
 };
 use crate::device::{
@@ -1549,7 +1549,9 @@ impl Application for ConnectApplet {
                                 .body(&file_name_clone)
                                 .icon("folder-download-symbolic")
                                 .appname("Connected")
-                                .timeout(notify_rust::Timeout::Milliseconds(NORMAL_NOTIFICATION_TIMEOUT_MS));
+                                .timeout(notify_rust::Timeout::Milliseconds(
+                                    NORMAL_NOTIFICATION_TIMEOUT_MS,
+                                ));
                             match tokio::task::spawn_blocking(move || notification.show()).await {
                                 Ok(Ok(_handle)) => tracing::debug!("File notification shown"),
                                 Ok(Err(e)) => {
