@@ -89,6 +89,8 @@ device-type-unknown = Zařízení
 
 # Notification settings sub-page
 notification-settings = Nastavení oznámení
+notification-duplicate-hint = Incoming SMS and calls can also trigger KDE Connect's own toasts, so you may see duplicates.
+learn-more = Learn more
 
 # SMS Notifications settings
 settings-sms-section = SMS zprávy

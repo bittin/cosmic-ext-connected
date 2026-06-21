@@ -33,9 +33,9 @@ pub fn view<'a>(
             .gap(sp.space_xxxs)
             .padding(sp.space_xxs),
             widget::tooltip(
-                widget::button::icon(icon::from_name("emblem-system-symbolic"))
+                widget::button::icon(icon::from_name("preferences-system-notifications-symbolic"))
                     .on_press(Message::ToggleSettings),
-                text::caption(fl!("settings")),
+                text::caption(fl!("notifications")),
                 widget::tooltip::Position::Bottom,
             )
             .gap(sp.space_xxxs)
@@ -84,6 +84,23 @@ pub fn view<'a>(
         }
         content = content.push(list);
     }
+
+    // App identity line -> About (quiet, tappable)
+    let footer = applet::padded_control(
+        row![
+            widget::space::horizontal(),
+            widget::button::custom(text::caption(format!(
+                "{} · v{}",
+                fl!("app-title"),
+                env!("CARGO_PKG_VERSION")
+            )))
+            .class(cosmic::theme::Button::Link)
+            .on_press(Message::OpenAbout),
+            widget::space::horizontal(),
+        ]
+        .align_y(Alignment::Center),
+    );
+    content = content.push(footer);
 
     widget::container(content.padding(sp.space_xxs)).into()
 }

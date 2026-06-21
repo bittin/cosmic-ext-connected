@@ -10,7 +10,7 @@ use cosmic::widget::{self, settings, text};
 use cosmic::Element;
 
 /// Render the main settings view (general settings + nav to notification settings).
-pub fn view_settings(_config: &Config) -> Element<'_, Message> {
+pub fn view_settings(config: &Config) -> Element<'_, Message> {
     let sp = cosmic::theme::spacing();
 
     let header = applet::padded_control(
@@ -18,117 +18,11 @@ pub fn view_settings(_config: &Config) -> Element<'_, Message> {
             widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
                 .class(cosmic::theme::Button::Link)
                 .on_press(Message::ToggleSettings),
-            text::heading(fl!("settings")),
+            text::heading(fl!("notifications")),
         ]
         .spacing(sp.space_xxs)
         .align_y(Alignment::Center),
     );
-
-    // General section
-    let general_section = settings::section();
-
-    // Navigation to notification settings sub-page
-    let notif_nav_row = row![
-        widget::icon::from_name("preferences-system-notifications-symbolic").size(24),
-        text::body(fl!("notification-settings")),
-        widget::space::horizontal(),
-        widget::icon::from_name("go-next-symbolic").size(16),
-    ]
-    .spacing(sp.space_xs)
-    .align_y(Alignment::Center);
-
-    let about_nav_row = row![
-        widget::icon::from_name("help-about-symbolic").size(24),
-        text::body(fl!("about")),
-        widget::space::horizontal(),
-        widget::icon::from_name("go-next-symbolic").size(16),
-    ]
-    .spacing(sp.space_xs)
-    .align_y(Alignment::Center);
-
-    let about_nav_btn = applet::menu_button(about_nav_row).on_press(Message::OpenAbout);
-
-    let notif_nav_btn =
-        applet::menu_button(notif_nav_row).on_press(Message::OpenNotificationSettings);
-
-    let sections = settings::view_column(vec![general_section.into()]);
-
-    widget::container(
-        widget::column::with_children(vec![
-            header.into(),
-            sections.into(),
-            notif_nav_btn.into(),
-            about_nav_btn.into(),
-        ])
-        .spacing(sp.space_xxs),
-    )
-    .width(Length::Fill)
-    .into()
-}
-
-/// Render the About sub-page
-pub fn view_about() -> Element<'static, Message> {
-    let sp = cosmic::theme::spacing();
-
-    let back_btn = widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
-        .class(cosmic::theme::Button::Link)
-        .on_press(Message::BackFromAbout);
-
-    let header = applet::padded_control(
-        row![back_btn, text::heading(fl!("about"))]
-            .spacing(sp.space_xxs)
-            .align_y(Alignment::Center),
-    );
-    let about_icon = widget::icon::from_name("io.github.nwxnw.cosmic-ext-connected").size(64);
-    let app_title = text::title3(fl!("app-title"));
-    let about_summary = text::caption(fl!("about-summary"));
-    let app_version = text::body(format!("v{}", env!("CARGO_PKG_VERSION")));
-    let about_homepage = widget::button::link(fl!("about-homepage"))
-        .trailing_icon(true)
-        .on_press(Message::OpenUrl(
-            "https://github.com/nwxnw/cosmic-ext-connected".to_string(),
-        ));
-    let about_issues = widget::button::link(fl!("about-issues"))
-        .trailing_icon(true)
-        .on_press(Message::OpenUrl(
-            "https://github.com/nwxnw/cosmic-ext-connected/issues".to_string(),
-        ));
-    let license = text::caption("GPL-3.0");
-
-    let identity = widget::column::with_children(vec![
-        about_icon.into(),
-        app_title.into(),
-        about_summary.into(),
-        app_version.into(),
-    ])
-    .align_x(Alignment::Center)
-    .spacing(sp.space_xxxs);
-
-    let links = widget::column::with_children(vec![about_homepage.into(), about_issues.into()])
-        .align_x(Alignment::Center)
-        .spacing(sp.space_xxxs);
-
-    let body = widget::column::with_children(vec![identity.into(), links.into(), license.into()])
-        .align_x(Alignment::Center)
-        .spacing(sp.space_m)
-        .width(Length::Fill)
-        .padding([0, sp.space_s as u16, sp.space_s as u16, sp.space_s as u16]);
-
-    let content =
-        widget::column::with_children(vec![header.into(), body.into()]).spacing(sp.space_xxs);
-
-    widget::container(widget::scrollable(content))
-        .width(Length::Fill)
-        .into()
-}
-
-/// Render the notification settings sub-page.
-pub fn view_notification_settings(config: &Config) -> Element<'_, Message> {
-    let sp = cosmic::theme::spacing();
-
-    let back_btn = widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
-        .class(cosmic::theme::Button::Link)
-        .on_press(Message::BackFromNotificationSettings);
 
     // SMS notifications section
     let mut sms_section = settings::section().title(fl!("settings-sms-section")).add(
@@ -192,15 +86,65 @@ pub fn view_notification_settings(config: &Config) -> Element<'_, Message> {
         file_section.into(),
     ]);
 
-    let header = applet::padded_control(
-        row![back_btn, text::heading(fl!("notification-settings")),]
-            .spacing(sp.space_xxs)
-            .align_y(Alignment::Center),
-    );
-
     let content = widget::column::with_children(vec![header.into(), sections.into()])
         .spacing(sp.space_xxs)
         .padding([0, sp.space_s as u16, sp.space_s as u16, sp.space_s as u16]);
+
+    widget::container(widget::scrollable(content))
+        .width(Length::Fill)
+        .into()
+}
+
+/// Render the About sub-page
+pub fn view_about() -> Element<'static, Message> {
+    let sp = cosmic::theme::spacing();
+
+    let back_btn = widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
+        .class(cosmic::theme::Button::Link)
+        .on_press(Message::BackFromAbout);
+
+    let header = applet::padded_control(
+        row![back_btn, text::heading(fl!("about"))]
+            .spacing(sp.space_xxs)
+            .align_y(Alignment::Center),
+    );
+    let about_icon = widget::icon::from_name("io.github.nwxnw.cosmic-ext-connected").size(64);
+    let app_title = text::title3(fl!("app-title"));
+    let about_summary = text::caption(fl!("about-summary"));
+    let app_version = text::body(format!("v{}", env!("CARGO_PKG_VERSION")));
+    let about_homepage = widget::button::link(fl!("about-homepage"))
+        .trailing_icon(true)
+        .on_press(Message::OpenUrl(
+            "https://github.com/nwxnw/cosmic-ext-connected".to_string(),
+        ));
+    let about_issues = widget::button::link(fl!("about-issues"))
+        .trailing_icon(true)
+        .on_press(Message::OpenUrl(
+            "https://github.com/nwxnw/cosmic-ext-connected/issues".to_string(),
+        ));
+    let license = text::caption("GPL-3.0");
+
+    let identity = widget::column::with_children(vec![
+        about_icon.into(),
+        app_title.into(),
+        about_summary.into(),
+        app_version.into(),
+    ])
+    .align_x(Alignment::Center)
+    .spacing(sp.space_xxxs);
+
+    let links = widget::column::with_children(vec![about_homepage.into(), about_issues.into()])
+        .align_x(Alignment::Center)
+        .spacing(sp.space_xxxs);
+
+    let body = widget::column::with_children(vec![identity.into(), links.into(), license.into()])
+        .align_x(Alignment::Center)
+        .spacing(sp.space_m)
+        .width(Length::Fill)
+        .padding([0, sp.space_s as u16, sp.space_s as u16, sp.space_s as u16]);
+
+    let content =
+        widget::column::with_children(vec![header.into(), body.into()]).spacing(sp.space_xxs);
 
     widget::container(widget::scrollable(content))
         .width(Length::Fill)

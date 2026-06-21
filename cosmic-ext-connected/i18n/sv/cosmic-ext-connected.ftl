@@ -91,6 +91,10 @@ device-type-laptop = Bärbar dator
 device-type-tv = TV
 device-type-unknown = Enhet
 
+# Notification settings sub-page
+notification-duplicate-hint = Incoming SMS and calls can also trigger KDE Connect's own toasts, so you may see duplicates.
+learn-more = Learn more
+
 # Inställningar för SMS-aviseringar
 settings-sms-notifications = SMS-aviseringar
 settings-sms-show-content = Visa meddelandeinnehåll

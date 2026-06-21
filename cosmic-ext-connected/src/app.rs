@@ -24,7 +24,7 @@ use crate::subscriptions::{
 };
 use crate::ui;
 use crate::views::send_to::{view_send_to, view_share_text, SendToParams, ShareTextParams};
-use crate::views::settings::{view_about, view_notification_settings, view_settings};
+use crate::views::settings::{view_about, view_settings};
 use cosmic::app::Core;
 use cosmic::iced::core::window;
 use cosmic::iced::platform_specific::shell::wayland::commands::popup::{destroy_popup, get_popup};
@@ -140,10 +140,6 @@ pub enum Message {
     BackFromAbout,
     /// Open an external URL in the default browser
     OpenUrl(String),
-    /// Navigate to notification settings sub-page
-    OpenNotificationSettings,
-    /// Return from notification settings to main settings
-    BackFromNotificationSettings,
     /// Toggle a specific setting
     ToggleSetting(SettingKey),
     /// Expand/collapse a collapsible device group (Offline)
@@ -369,8 +365,6 @@ pub enum ViewMode {
     NewMessage,
     /// Settings view
     Settings,
-    /// Notification settings sub-page
-    NotificationSettings,
     /// About sub-page
     About,
     /// Media player controls
@@ -953,25 +947,17 @@ impl Application for ConnectApplet {
 
             // Settings
             Message::ToggleSettings => {
-                if self.view_mode == ViewMode::Settings
-                    || self.view_mode == ViewMode::NotificationSettings
-                {
+                if self.view_mode == ViewMode::Settings {
                     self.view_mode = ViewMode::DeviceList;
                 } else {
                     self.view_mode = ViewMode::Settings;
                 }
             }
-            Message::OpenNotificationSettings => {
-                self.view_mode = ViewMode::NotificationSettings;
-            }
-            Message::BackFromNotificationSettings => {
-                self.view_mode = ViewMode::Settings;
-            }
             Message::OpenAbout => {
                 self.view_mode = ViewMode::About;
             }
             Message::BackFromAbout => {
-                self.view_mode = ViewMode::Settings;
+                self.view_mode = ViewMode::DeviceList;
             }
             Message::OpenUrl(url) => {
                 return cosmic::app::Task::perform(
@@ -1661,7 +1647,6 @@ impl Application for ConnectApplet {
         let content: Element<Message> = match &self.view_mode {
             ViewMode::About => view_about(),
             ViewMode::Settings => view_settings(&self.config),
-            ViewMode::NotificationSettings => view_notification_settings(&self.config),
             ViewMode::ConversationList => self.sms.view(
                 SmsViewMode::ConversationList,
                 &self.config,
@@ -1719,8 +1704,10 @@ impl Application for ConnectApplet {
                         column![
                             widget::text::heading(fl!("no-devices")),
                             widget::text::caption(fl!("no-devices-hint")),
-                            widget::button::icon(widget::icon::from_name("emblem-system-symbolic"))
-                                .on_press(Message::ToggleSettings),
+                            widget::button::icon(widget::icon::from_name(
+                                "preferences-system-notifications-symbolic"
+                            ))
+                            .on_press(Message::ToggleSettings),
                         ]
                         .spacing(sp.space_xxs)
                         .align_x(Alignment::Center),
