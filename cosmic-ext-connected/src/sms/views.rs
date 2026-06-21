@@ -711,13 +711,7 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
             .into()
     };
 
-    // Recipient input with action icon
-    let recipient_input = widget::text_input(fl!("recipient-placeholder"), params.recipient_input)
-        .on_input(Message::NewMessageRecipientInput)
-        .on_submit(|_| Message::AddManualRecipient)
-        .width(Length::Fill)
-        .id(widget::Id::new("new-message-recipient"));
-
+    // Recipient input - use text_input's own leading/trailing slots
     let input_valid = is_address_valid(params.recipient_input);
     let action_icon: Element<Message> = if params.recipient_input.is_empty() {
         widget::Space::new()
@@ -735,11 +729,15 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
             .into()
     };
 
-    let recipient_row = applet::padded_control(
-        row![text::body(fl!("to")), recipient_input, action_icon,]
-            .spacing(sp.space_xxs)
-            .align_y(Alignment::Center),
-    );
+    let recipient_input = widget::text_input(fl!("recipient-placeholder"), params.recipient_input)
+        .on_input(Message::NewMessageRecipientInput)
+        .on_submit(|_| Message::AddManualRecipient)
+        .leading_icon(text::body(fl!("to")).into())
+        .trailing_icon(action_icon)
+        .width(Length::Fill)
+        .id(widget::Id::new("new-message-recipient"));
+
+    let recipient_row = applet::padded_control(recipient_input);
 
     // Contact suggestions (show if input is being typed and we have matches)
     let suggestions_section: Element<Message> = if !params.recipient_input.is_empty()
