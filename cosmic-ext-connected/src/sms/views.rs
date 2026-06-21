@@ -681,34 +681,39 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
     let chips_section: Element<Message> = if params.recipients.is_empty() {
         widget::Space::new().into()
     } else {
-        let mut chips_col = column![].spacing(sp.space_xxxs);
+        // Compact pills that wrap across lines. Name-only labels for known contacts
+        let mut pills: Vec<Element<Message>> = Vec::new();
         for (i, (display_name, phone)) in params.recipients.iter().enumerate() {
-            // Show "Name (phone)" if name differs from phone, else just phone
             let label = if display_name != phone {
-                format!("{} ({})", display_name, phone)
+                display_name.clone()
             } else {
                 phone.clone()
             };
 
-            let chip = widget::container(
+            let pill = widget::container(
                 row![
                     text::body(label),
-                    widget::space::horizontal(),
                     widget::button::icon(widget::icon::from_name("edit-clear-symbolic").size(16))
-                        .on_press(Message::RemoveRecipient(i)),
+                        .on_press(Message::RemoveRecipient(i))
+                        .class(cosmic::theme::Button::Link),
                 ]
                 .spacing(sp.space_xxs)
                 .align_y(Alignment::Center),
             )
             .padding([sp.space_xxxs, sp.space_xs])
-            .class(cosmic::theme::Container::Card);
-
-            chips_col = chips_col.push(chip);
+            .class(cosmic::theme::Container::Card)
+            .into();
+            pills.push(pill);
         }
-        widget::container(chips_col)
-            .padding([0, sp.space_xs as u16])
-            .width(Length::Fill)
-            .into()
+
+        widget::container(
+            widget::flex_row(pills)
+                .spacing(sp.space_xs as u16)
+                .width(Length::Fill),
+        )
+        .padding([0, sp.space_xs as u16])
+        .width(Length::Fill)
+        .into()
     };
 
     // Recipient input - use text_input's own leading/trailing slots
