@@ -723,9 +723,16 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
             .class(cosmic::theme::Button::Link)
             .on_press(Message::AddManualRecipient)
             .into()
-    } else {
+    } else if params.recipient_input.contains('@') {
+        // Malformed email entry - sho an error hint. Plain name queries
+        // and partial phone numbers stay neutral
         widget::icon::from_name("dialog-error-symbolic")
             .size(20)
+            .into()
+    } else {
+        widget::Space::new()
+            .width(Length::Fixed(20.0))
+            .height(Length::Fixed(20.0))
             .into()
     };
 

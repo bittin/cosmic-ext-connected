@@ -294,9 +294,15 @@ impl SmsConversationStore {
             (None, None) => std::cmp::Ordering::Equal,  // Neither has timestamp: keep order
         });
 
-        // Take up to max_suggestions and drop the timestamp
+        // Dedup by phone-number suffix, keeping the most-recent entry
+        // Then take up to max_suggestions and drop the timestamp
+        let mut seen_numbers = HashSet::new();
         entries
             .into_iter()
+            .filter(|(_, phone, _)| {
+                let normalized = normalize_phone_number(phone);
+                seen_numbers.insert(phone_suffix(&normalized).to_string())
+            })
             .take(max_suggestions)
             .map(|(name, phone, _)| (name, phone))
             .collect()
