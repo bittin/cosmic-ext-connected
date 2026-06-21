@@ -166,7 +166,7 @@ pub enum Message {
     /// SMS-related error occurred
     SmsError(String),
     /// Update SMS compose text input
-    SmsComposeInput(String),
+    SmsComposeAction(cosmic::widget::text_editor::Action),
     /// Send SMS in current thread
     SendSms,
     /// SMS send operation completed
@@ -178,7 +178,7 @@ pub enum Message {
     /// Update new message recipient input
     NewMessageRecipientInput(String),
     /// Update new message body input
-    NewMessageBodyInput(String),
+    NewMessageBodyAction(cosmic::widget::text_editor::Action),
     /// Add the current input as a recipient chip (Enter key or add button)
     AddManualRecipient,
     /// Remove a recipient chip by index
@@ -1129,7 +1129,7 @@ impl Application for ConnectApplet {
                 self.sms.sms_loading_state = SmsLoadingState::Idle;
                 self.sms.conversation_sync_active = false;
                 self.sms.conversation_list_subscription_active = false;
-                self.sms.sms_compose_text.clear();
+                self.sms.sms_compose_text = widget::text_editor::Content::new();
                 self.sms.sms_sending = false;
                 self.sms.sms_sending_body = None;
             }
@@ -1201,7 +1201,7 @@ impl Application for ConnectApplet {
                 self.sms.current_thread_addresses = None;
                 self.sms.current_merged_thread_ids.clear();
                 self.sms.messages.clear();
-                self.sms.sms_compose_text.clear();
+                self.sms.sms_compose_text = widget::text_editor::Content::new();
                 self.sms.sms_sending = false;
                 self.sms.sms_sending_body = None;
                 self.sms.message_sync_active = false;
@@ -1239,7 +1239,7 @@ impl Application for ConnectApplet {
                 self.view_mode = ViewMode::NewMessage;
                 self.sms.new_message_recipients.clear();
                 self.sms.new_message_recipient_input.clear();
-                self.sms.new_message_body.clear();
+                self.sms.new_message_body = widget::text_editor::Content::new();
                 self.sms.new_message_sending = false;
                 self.sms.contact_suggestions.clear();
                 return widget::text_input::focus(widget::Id::new("new-message-recipient"));
@@ -1248,7 +1248,7 @@ impl Application for ConnectApplet {
                 self.view_mode = ViewMode::ConversationList;
                 self.sms.new_message_recipients.clear();
                 self.sms.new_message_recipient_input.clear();
-                self.sms.new_message_body.clear();
+                self.sms.new_message_body = widget::text_editor::Content::new();
                 self.sms.new_message_sending = false;
             }
 
@@ -1573,11 +1573,11 @@ impl Application for ConnectApplet {
             | Message::ConversationStoreLoaded { .. }
             | Message::ConversationLoadComplete { .. }
             | Message::SmsError(_)
-            | Message::SmsComposeInput(_)
+            | Message::SmsComposeAction(_)
             | Message::SendSms
             | Message::SmsSendResult(_)
             | Message::NewMessageRecipientInput(_)
-            | Message::NewMessageBodyInput(_)
+            | Message::NewMessageBodyAction(_)
             | Message::AddManualRecipient
             | Message::RemoveRecipient(_)
             | Message::SelectContact(_, _)

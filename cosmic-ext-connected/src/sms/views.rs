@@ -393,7 +393,7 @@ pub struct MessageThreadParams<'a> {
     pub messages: &'a [SmsMessage],
     pub contacts: &'a ContactLookup,
     pub loading_state: &'a SmsLoadingState,
-    pub sms_compose_text: &'a str,
+    pub sms_compose_text: &'a widget::text_editor::Content,
     pub sms_sending: bool,
     /// Whether background sync is active (syncing messages from phone)
     pub sync_active: bool,
@@ -403,6 +403,19 @@ pub struct MessageThreadParams<'a> {
     pub show_copy_hint: bool,
     /// Status message to display (e.g. send confirmation or error)
     pub status_message: Option<&'a str>,
+}
+
+/// Enter sends; Shift+Enter falls through to default newline binding
+fn compose_key_binding(
+    kp: widget::text_editor::KeyPress,
+    submit: Message,
+) -> Option<widget::text_editor::Binding<Message>> {
+    use cosmic::iced::keyboard::{key::Named, Key};
+    use widget::text_editor::Binding;
+    match kp.key {
+        Key::Named(Named::Enter) if !kp.modifiers.shift() => Some(Binding::Custom(submit)),
+        _ => Binding::from_key_press(kp),
+    }
 }
 
 /// Render the SMS message thread view.
@@ -598,17 +611,20 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
     };
 
     // Compose row
-    let compose_input = widget::text_input(fl!("type-message"), params.sms_compose_text)
-        .on_input(Message::SmsComposeInput)
-        .on_submit(|_| Message::SendSms)
-        .width(Length::Fill);
+    let compose_input = widget::text_editor(params.sms_compose_text)
+        .placeholder(fl!("type-message"))
+        .on_action(Message::SmsComposeAction)
+        .key_binding(|kp| compose_key_binding(kp, Message::SendSms))
+        .height(Length::Shrink)
+        .padding(sp.space_xs)
+        .max_height(120.0);
 
     let send_btn: Element<Message> = if params.sms_sending {
         widget::button::standard(fl!("sending"))
             .leading_icon(widget::icon::from_name("process-working-symbolic").size(16))
             .into()
     } else {
-        let can_send = !params.sms_compose_text.is_empty() && !params.sms_sending;
+        let can_send = !params.sms_compose_text.text().trim().is_empty() && !params.sms_sending;
         widget::button::suggested(fl!("send"))
             .leading_icon(widget::icon::from_name("mail-send-symbolic").size(16))
             .on_press_maybe(if can_send {
@@ -648,7 +664,7 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
 pub struct NewMessageParams<'a> {
     pub recipients: &'a [(String, String)],
     pub recipient_input: &'a str,
-    pub body: &'a str,
+    pub body: &'a widget::text_editor::Content,
     pub sending: bool,
     /// Contact suggestions as (contact_name, phone_number) tuples
     pub contact_suggestions: &'a [(String, String)],
@@ -782,13 +798,17 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
     };
 
     // Message input
-    let message_input = widget::text_input(fl!("type-message"), params.body)
-        .on_input(Message::NewMessageBodyInput)
-        .on_submit(|_| Message::SendNewMessage)
-        .width(Length::Fill);
+    let message_input = widget::text_editor(params.body)
+        .placeholder(fl!("type-message"))
+        .on_action(Message::NewMessageBodyAction)
+        .key_binding(|kp| compose_key_binding(kp, Message::SendNewMessage))
+        .height(Length::Shrink)
+        .padding(sp.space_xs)
+        .max_height(120.0);
 
     // Send button — enabled when at least one recipient and body is non-empty
-    let send_enabled = !params.recipients.is_empty() && !params.body.is_empty() && !params.sending;
+    let send_enabled =
+        !params.recipients.is_empty() && !params.body.text().trim().is_empty() && !params.sending;
 
     let send_btn = if params.sending {
         widget::button::standard(fl!("sending"))

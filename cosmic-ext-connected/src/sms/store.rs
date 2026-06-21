@@ -94,7 +94,7 @@ pub struct SmsConversationStore {
     pub(crate) conversations_displayed: usize,
 
     // Reply compose / send
-    pub(crate) sms_compose_text: String,
+    pub(crate) sms_compose_text: widget::text_editor::Content,
     pub(crate) sms_sending: bool,
     pub(crate) sms_sending_body: Option<String>,
 
@@ -107,7 +107,7 @@ pub struct SmsConversationStore {
     // New-message compose
     pub(crate) new_message_recipients: Vec<(String, String)>,
     pub(crate) new_message_recipient_input: String,
-    pub(crate) new_message_body: String,
+    pub(crate) new_message_body: widget::text_editor::Content,
     pub(crate) new_message_sending: bool,
     pub(crate) contact_suggestions: Vec<(String, String)>,
 
@@ -144,7 +144,7 @@ impl SmsConversationStore {
             contacts: ContactLookup::default(),
             conversation_list_key: 0,
             conversations_displayed: 10,
-            sms_compose_text: String::new(),
+            sms_compose_text: widget::text_editor::Content::new(),
             sms_sending: false,
             sms_sending_body: None,
             messages_loaded_count: 0,
@@ -153,7 +153,7 @@ impl SmsConversationStore {
             content_height_before_load: None,
             new_message_recipients: Vec::new(),
             new_message_recipient_input: String::new(),
-            new_message_body: String::new(),
+            new_message_body: widget::text_editor::Content::new(),
             new_message_sending: false,
             contact_suggestions: Vec::new(),
             last_seen_sms: HashMap::new(),
@@ -961,8 +961,8 @@ impl SmsConversationStore {
             }
 
             // === Batch 3: Reply send + attachments + notification ===
-            Message::SmsComposeInput(text) => {
-                self.sms_compose_text = text;
+            Message::SmsComposeAction(action) => {
+                self.sms_compose_text.perform(action);
                 (cosmic::app::Task::none(), SmsReply::NoOp)
             }
             Message::SendSms => {
@@ -972,7 +972,7 @@ impl SmsConversationStore {
                     ctx.conn.is_some(),
                     self.sms_device_id,
                     self.current_thread_id,
-                    self.sms_compose_text.is_empty(),
+                    self.sms_compose_text.text().trim().is_empty(),
                     self.sms_sending
                 );
                 if let (Some(conn), Some(device_id), Some(thread_id)) = (
@@ -980,8 +980,8 @@ impl SmsConversationStore {
                     self.sms_device_id.as_ref(),
                     self.current_thread_id,
                 ) {
-                    if !self.sms_compose_text.is_empty() && !self.sms_sending {
-                        let message_text = self.sms_compose_text.clone();
+                    let message_text = self.sms_compose_text.text();
+                    if !message_text.trim().is_empty() && !self.sms_sending {
                         self.sms_sending = true;
                         self.sms_sending_body = Some(message_text.clone());
                         // Apply the split-by-case rule: for symmetric merges
@@ -1019,7 +1019,7 @@ impl SmsConversationStore {
                     } else {
                         tracing::warn!(
                             "SendSms conditions not met: text_empty={}, sending={}",
-                            self.sms_compose_text.is_empty(),
+                            message_text.trim().is_empty(),
                             self.sms_sending
                         );
                     }
@@ -1033,7 +1033,7 @@ impl SmsConversationStore {
                 match result {
                     Ok(sent_body) => {
                         tracing::info!("SMS sent successfully");
-                        self.sms_compose_text.clear();
+                        self.sms_compose_text = widget::text_editor::Content::new();
 
                         if let Some(thread_id) = self.current_thread_id {
                             let now_ms = std::time::SystemTime::now()
@@ -1280,8 +1280,8 @@ impl SmsConversationStore {
                 self.new_message_recipient_input = text;
                 (cosmic::app::Task::none(), SmsReply::NoOp)
             }
-            Message::NewMessageBodyInput(text) => {
-                self.new_message_body = text;
+            Message::NewMessageBodyAction(action) => {
+                self.new_message_body.perform(action);
                 (cosmic::app::Task::none(), SmsReply::NoOp)
             }
             Message::AddManualRecipient => {
@@ -1319,8 +1319,9 @@ impl SmsConversationStore {
             }
             Message::SendNewMessage => {
                 if let (Some(conn), Some(device_id)) = (ctx.conn, self.sms_device_id.as_ref()) {
+                    let body_text = self.new_message_body.text();
                     if !self.new_message_recipients.is_empty()
-                        && !self.new_message_body.is_empty()
+                        && !body_text.trim().is_empty()
                         && !self.new_message_sending
                     {
                         let recipients: Vec<String> = self
@@ -1328,7 +1329,7 @@ impl SmsConversationStore {
                             .iter()
                             .map(|(_, phone)| phone.clone())
                             .collect();
-                        let message = self.new_message_body.clone();
+                        let message = body_text;
                         self.new_message_sending = true;
                         return (
                             cosmic::app::Task::perform(
@@ -1355,7 +1356,7 @@ impl SmsConversationStore {
                         let success_msg = msg.clone();
                         self.new_message_recipients.clear();
                         self.new_message_recipient_input.clear();
-                        self.new_message_body.clear();
+                        self.new_message_body = widget::text_editor::Content::new();
                         // Enable subscription to catch the new conversation when the phone
                         // syncs back. The subscription listens over a longer window than a
                         // one-shot fetch, giving the phone time to process the send and
