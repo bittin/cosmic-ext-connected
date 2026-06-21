@@ -9,12 +9,14 @@ All notable changes to Connected will be documented in this file.
 - **Unpair offline devices without reconnecting.** A paired device that's currently offline can now be unpaired straight from its device page.
 - **About page.** Shows the app version and links to the project homepage and issue tracker.
 - **Notifications page explains KDE Connect duplicate toasts.** A short hint and "Learn more" link explain why an incoming SMS or call can appear twice when KDE Connect's notifications are also enabled.
+- **The message box grows as you type.** The reply and new-message compose fields now expand vertically and wrap as you type. Enter sends; Shift+Enter inserts a newline.
 
 ### Changed
 - **Settings reworked into a focused "Notifications" page.** View-state toggles moved to the main UI; the page - opened from a notifications icon (formerly a gear) - now offers only per-type notification on/off and privacy options.
 - **Battery percentage and the notification-count badge now always show.**
 - **Removed the "Show offline devices" and "Show non-mobile devices" toggles.** Offline devices are handled by the new collapsible group; non-mobile devices are shown by default.
 - **Notification duration now follows your COSMIC system settings** instead of a separate in-app slider.
+- **New-message recipient picker polished.** Recipients now show as compact wrapping pills, the contact-suggestion list is cleaner (deduplicated, capped, and shown above the recipients), and the missing text cursor in the recipient field is fixed.
 
 ## [0.5.2] - 2026-05-27
 
