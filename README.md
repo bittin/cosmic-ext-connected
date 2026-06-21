@@ -111,15 +111,23 @@ sudo just uninstall
 
 ## Configuration
 
-Settings are accessible via the gear icon in the applet. Options include:
+Notification settings live on the **Notifications** page, opened from the notifications icon at the top of the applet. You can toggle each desktop alert and tune what it reveals:
 
-- **Show battery percentage** - Display battery level in device list
-- **Show offline devices** - Show paired devices that aren't currently connected
-- **Show non-mobile devices** - Show desktops and laptops that aren't currently connected
-- **Show notifications** - Toggle desktop notifications. Additional notification settings in Notifications Settings page
-- **File notifications** - Desktop notifications for received files
-- **SMS notifications** - Desktop notifications for incoming SMS (with sender/content privacy options)
-- **Call notifications** - Desktop notifications for incoming/missed calls (with name/number privacy options)
+- **SMS notifications** - Desktop alerts for incoming SMS, with options to show or hide the sender and the message content
+- **Call notifications** - Desktop alerts for incoming and missed calls, with options to show or hide the caller's name and number
+- **File notifications** - Desktop alerts for received files
+
+App and version information is on the **About** page, reached from the identity line at the bottom of the device list.
+
+<!-- Anchor #duplicate-notifications-with-kde-connect is linked from the in-app Notifications page ("Learn more"). Do not rename this heading. -->
+## Duplicate notifications with KDE Connect
+
+Connected raises its own desktop notifications for incoming SMS and calls. KDE Connect can announce the same events independently, so depending on which KDE Connect plugins you have enabled, you may see each SMS or call notified twice. (File transfers are only notified by Connected, so they never duplicate.)
+
+- **SMS** - The duplicate comes from KDE Connect's **"Receive notifications"** plugin, which mirrors your phone's notifications to the desktop. Disabling that plugin stops the duplicate SMS toast, but it also empties Connected's per-device notification list and the notification count badge - both are populated from that plugin's data. Connected's own SMS toast is separate and keeps working either way.
+- **Calls** - The duplicate comes from KDE Connect's **telephony** plugin. Connected reads call events from that same plugin, so disabling it would remove Connected's call notifications too; there is no clean per-app toggle today.
+
+The cleanest fix would be to mute KDE Connect's toasts at the COSMIC notification service. As COSMIC's notification settings evolve, per-application controls may offer a built-in way to do this.
 
 ## Contributing
 

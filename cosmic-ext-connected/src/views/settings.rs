@@ -24,6 +24,24 @@ pub fn view_settings(config: &Config) -> Element<'_, Message> {
         .align_y(Alignment::Center),
     );
 
+    // KDE Connect duplicate-notification hint
+    let hint = widget::container(
+        widget::column::with_children(vec![
+            text::caption(fl!("notification-duplicate-hint")).into(),
+            widget::button::link(fl!("learn-more"))
+                .trailing_icon(true)
+                .on_press(Message::OpenUrl(
+                    "https://github.com/nwxnw/cosmic-ext-connected#duplicate-notifications-with-kde-connect"
+                        .to_string(),
+                ))
+                .into(),
+        ])
+            .spacing(sp.space_xxs),
+    )
+        .padding([sp.space_xxs, sp.space_s as u16])
+        .width(Length::Fill)
+        .class(cosmic::theme::Container::Card);
+
     // SMS notifications section
     let mut sms_section = settings::section().title(fl!("settings-sms-section")).add(
         settings::item::builder(fl!("settings-sms-notifications"))
@@ -86,7 +104,11 @@ pub fn view_settings(config: &Config) -> Element<'_, Message> {
         file_section.into(),
     ]);
 
-    let content = widget::column::with_children(vec![header.into(), sections.into()])
+    let content = widget::column::with_children(vec![
+        header.into(),
+        hint.into(),
+        sections.into()
+    ])
         .spacing(sp.space_xxs)
         .padding([0, sp.space_s as u16, sp.space_s as u16, sp.space_s as u16]);
 
