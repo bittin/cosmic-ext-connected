@@ -104,11 +104,7 @@ pub fn view_settings(config: &Config) -> Element<'_, Message> {
         file_section.into(),
     ]);
 
-    let content = widget::column::with_children(vec![
-        header.into(),
-        hint.into(),
-        sections.into()
-    ])
+    let content = widget::column::with_children(vec![header.into(), hint.into(), sections.into()])
         .spacing(sp.space_xxs)
         .padding([0, sp.space_s as u16, sp.space_s as u16, sp.space_s as u16]);
 
