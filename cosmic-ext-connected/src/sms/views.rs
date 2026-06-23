@@ -407,11 +407,18 @@ pub struct MessageThreadParams<'a> {
 
 /// Enter sends; Shift+Enter falls through to default newline binding
 fn compose_key_binding(
-    kp: widget::text_editor::KeyPress,
+    mut kp: widget::text_editor::KeyPress,
     submit: Message,
 ) -> Option<widget::text_editor::Binding<Message>> {
     use cosmic::iced::keyboard::{key::Named, Key};
     use widget::text_editor::Binding;
+
+    // COSMIC/winit delivers navigation keys with `text = Some("")` rather than
+    // `None`; normalize empty/control-only text to None so motions apply
+    if kp.text.as_deref().is_some_and(|t| t.chars().all(|c| c.is_control())) {
+        kp.text = None;
+    }
+
     match kp.key {
         Key::Named(Named::Enter) if !kp.modifiers.shift() => Some(Binding::Custom(submit)),
         _ => Binding::from_key_press(kp),
