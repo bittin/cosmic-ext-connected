@@ -87,18 +87,18 @@ device-type-tv = Televize
 device-type-unknown = Zařízení
 
 # Notification settings sub-page
-notification-duplicate-hint = Incoming SMS and calls can also trigger KDE Connect's own toasts, so you may see duplicates.
-learn-more = Learn more
+notification-duplicate-hint = Příchozí SMS a hovory mohou také vyvolat vlastní oznámení KDE Connect, takže se některá oznámení mohou zobrazit dvakrát.
+learn-more = Zjistit více
 
 # SMS Notifications settings
 settings-sms-section = SMS zprávy
-settings-sms-notifications = Zobrazit SMS zprávy
+settings-sms-notifications = Zobrazit oznámení
 settings-sms-show-sender = Zobrazit odesílatele
 settings-sms-show-content = Zobrazit obsah
 
 # Call Notifications settings
 settings-call-section = Hovory
-settings-call-notifications = Zobrazit hovory
+settings-call-notifications = Zobrazit oznámení
 settings-call-show-name = Zobrazit jméno volajícího
 settings-call-show-number = Zobrazit telefonní číslo
 
@@ -115,7 +115,7 @@ missed-call-from = Zmeškaný hovor od { $name }
 
 # File Notifications settings
 settings-file-section = Přenosy souborů
-settings-file-notifications = Zobrazit přenosy souborů
+settings-file-notifications = Zobrazit oznámení
 
 # File Notification text
 file-received = Soubor přijat
@@ -184,12 +184,11 @@ loading-attachment = Načítání přílohy...
 attachment-failed = Nepodařilo se načíst přílohu
 
 # Reaction-thread merging UI
-merge-toggle-on-tooltip = Reakční vlákna jsou sloučena. Kliknutím je zobrazíte odděleně.
-merge-toggle-off-tooltip = Reakční vlákna jsou zobrazena odděleně. Kliknutím je sloučíte.
+merge-toggle-on-tooltip = Odpovědi na reakce jsou seskupeny do příslušné konverzace. Kliknutím je zobrazíte jako samostatná vlákna.
+merge-toggle-off-tooltip = Vlákna odpovědí na reakce jsou zobrazena samostatně - odpovědi se mohou zobrazovat duplicitně. Kliknutím je seskupíte.
 
 # About page
-# TODO: translate (English stubs)
-about = About
-about-summary = Phone-to-desktop connectivity for COSMIC
-about-homepage = Homepage
-about-issues = Report an issue
+about = O aplikaci
+about-summary = Propojení telefonu s počítačem v prostředí COSMIC
+about-homepage = Domovská stránka
+about-issues = Nahlásit chybu
