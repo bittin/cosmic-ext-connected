@@ -4,7 +4,6 @@
 app-title = Connected
 
 # General UI
-settings = Nastavení
 loading = Načítání...
 error = Chyba
 unknown = Neznámé
@@ -88,7 +87,6 @@ device-type-tv = Televize
 device-type-unknown = Zařízení
 
 # Notification settings sub-page
-notification-settings = Nastavení oznámení
 notification-duplicate-hint = Incoming SMS and calls can also trigger KDE Connect's own toasts, so you may see duplicates.
 learn-more = Learn more
 
@@ -188,3 +186,10 @@ attachment-failed = Nepodařilo se načíst přílohu
 # Reaction-thread merging UI
 merge-toggle-on-tooltip = Reakční vlákna jsou sloučena. Kliknutím je zobrazíte odděleně.
 merge-toggle-off-tooltip = Reakční vlákna jsou zobrazena odděleně. Kliknutím je sloučíte.
+
+# About page
+# TODO: translate (English stubs)
+about = About
+about-summary = Phone-to-desktop connectivity for COSMIC
+about-homepage = Homepage
+about-issues = Report an issue
