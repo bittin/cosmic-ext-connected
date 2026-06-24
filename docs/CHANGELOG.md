@@ -1,22 +1,23 @@
 # Changelog
 
-All notable changes to Connected will be documented in this file.
-
-## [0.6.0] - Unreleased
+## [0.6.0] - 2026-06-24
 
 ### Added
-- **Collapsible "Offline" device group.** The device list now orders reachable devices first and tucks paired-but-offline devices into a collapsible "Offline (N)" group. The expanded/collapsed state is remembered.
+- **Collapsible "Offline" device group.** The device list now orders reachable devices first and tucks paired-but-offline devices into a collapsible "Offline" group.
 - **Unpair offline devices without reconnecting.** A paired device that's currently offline can now be unpaired straight from its device page.
 - **About page.** Shows the app version and links to the project homepage and issue tracker.
 - **Notifications page explains KDE Connect duplicate toasts.** A short hint and "Learn more" link explain why an incoming SMS or call can appear twice when KDE Connect's notifications are also enabled.
 - **The message box grows as you type.** The reply and new-message compose fields now expand vertically and wrap as you type. Enter sends; Shift+Enter inserts a newline.
 
 ### Changed
-- **Settings reworked into a focused "Notifications" page.** View-state toggles moved to the main UI; the page - opened from a notifications icon (formerly a gear) - now offers only per-type notification on/off and privacy options.
-- **Battery percentage and the notification-count badge now always show.**
+- **Settings reworked into a focused "Notifications" page.** View-state settings moved to the main UI; notification settings provide per-type (SMS, calls, file transfers) on/off toggles and privacy options.
 - **Removed the "Show offline devices" and "Show non-mobile devices" toggles.** Offline devices are handled by the new collapsible group; non-mobile devices are shown by default.
+- **Battery percentage and the notification-count badge now always show.**
 - **Notification duration now follows your COSMIC system settings** instead of a separate in-app slider.
-- **New-message recipient picker polished.** Recipients now show as compact wrapping pills, the contact-suggestion list is cleaner (deduplicated, capped, and shown above the recipients), and the missing text cursor in the recipient field is fixed.
+- **New-message recipient picker polished.** Recipients now show as compact wrapping pills, the contact-suggestion list is cleaner (deduplicated, capped, and shown below the recipients), and the missing text cursor in the recipient field is fixed.
+
+### Fixed
+- **Recipient error-icon misfire.** Error glyph no longer shows on every name query.
 
 ## [0.5.2] - 2026-05-27
 
