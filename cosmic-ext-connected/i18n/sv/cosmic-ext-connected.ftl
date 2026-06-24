@@ -55,8 +55,7 @@ media = Media
 media-controls = Mediekontroller
 notifications = Aviseringar
 device-must-be-connected = Enheten måste vara ansluten för att använda åtgärder
-# TODO: translate (English stub)
-device-offline-actions-unavailable = Other actions need this device online.
+device-offline-actions-unavailable = Andra åtgärder kräver att den här enheten är online.
 send-to = Skicka till { $device }
 send-to-title = Skicka till { $device }
 share-text-with-title = Dela text med { $device }
@@ -68,8 +67,7 @@ find-phone-failed = Misslyckades att ringa telefon
 # Parning
 pair = Para
 unpair = Koppla bort
-# TODO: translate (English stub)
-unpair-offline-note = This device is offline. Unpairing takes effect now on your end; the other device finishes unpairing when it next connects.
+unpair-offline-note = Den här enheten är offline. Parkopplingen träder nu i kraft hos dig; den andra enheten avslutar parkopplingen nästa gång den ansluter.
 accept = Acceptera
 reject = Avvisa
 cancel = Avbryt
@@ -191,8 +189,7 @@ merge-toggle-on-tooltip = Reaktionstrådarna är sammanslagna. Klicka för att v
 merge-toggle-off-tooltip = Reaktionstrådar visas separat. Klicka för att sammanfoga.
 
 # About page
-# TODO: translate (English stubs)
-about = About
-about-summary = Phone-to-desktop connectivity for COSMIC
-about-homepage = Homepage
-about-issues = Report an issue
+about = Om
+about-summary = Telefon till dator anslutning för COSMIC
+about-homepage = Hemsida
+about-issues = Rapportera ett problem
