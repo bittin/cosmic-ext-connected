@@ -415,7 +415,11 @@ fn compose_key_binding(
 
     // COSMIC/winit delivers navigation keys with `text = Some("")` rather than
     // `None`; normalize empty/control-only text to None so motions apply
-    if kp.text.as_deref().is_some_and(|t| t.chars().all(|c| c.is_control())) {
+    if kp
+        .text
+        .as_deref()
+        .is_some_and(|t| t.chars().all(|c| c.is_control()))
+    {
         kp.text = None;
     }
 
