@@ -8,10 +8,15 @@ export APPID := 'io.github.nwxnw.cosmic-ext-connected'
 # Installation paths (overridable via env vars for Flatpak builds)
 # Default prefix is user-local, so `just install` needs no sudo.
 # System-wide install remains available: `sudo just prefix=/usr install`
+# Packagers: just rootdir="$pkgdir" prefix=/usr install
 rootdir := ''
-prefix := env_var('HOME') / '.local'
+default-prefix := env_var('HOME') / '.local'
+prefix := default-prefix
 base-dir := absolute_path(clean(rootdir / prefix))
 export INSTALL_DIR := base-dir / 'share'
+# Runtime location of the binary (excludes rootdir, which is a staging dir only)
+exec_dir := clean(prefix / 'bin')
+staged := if rootdir != '' { 'yes' } else if prefix != default-prefix { 'yes' } else { '' }
 
 bin_dir := env_var_or_default("BIN_DIR", base-dir / 'bin')
 app_dir := env_var_or_default("APP_DIR", INSTALL_DIR / 'applications')
@@ -37,11 +42,11 @@ run:
 # Install pre-built applet for current user (no sudo)
 # Usage: cargo build --release && just install
 install:
-    @[ "$(id -u)" -ne 0 ] || [ -n "${BIN_DIR:-}" ] || { echo "Run 'just install' WITHOUT sudo - this is a per-user install." >&2; exit 1; }
+    @[ "$(id -u)" -ne 0 ] || [ -n "${BIN_DIR:-}" ] || [ -n "{{staged}}" ] || { echo "Run 'just install' WITHOUT sudo - this is a per-user install." >&2; exit 1; }
     install -Dm0755 target/release/{{name}} {{bin_dir}}/{{name}}
     install -Dm0755 data/{{APPID}}.sh {{bin_dir}}/{{name}}.sh
     install -Dm0644 data/{{APPID}}.desktop {{app_dir}}/{{APPID}}.desktop
-    @[ -n "${BIN_DIR:-}" ] || sed -i 's|^Exec=.*|Exec={{bin_dir}}/{{name}}|' {{app_dir}}/{{APPID}}.desktop
+    @[ -n "${BIN_DIR:-}" ] || sed -i 's|^Exec=.*|Exec={{exec_dir}}/{{name}}|' {{app_dir}}/{{APPID}}.desktop
     install -Dm0644 data/{{APPID}}.metainfo.xml {{metainfo_dir}}/{{APPID}}.metainfo.xml
     install -Dm0644 data/icons/hicolor/scalable/apps/{{APPID}}.svg {{icon_dir}}/{{APPID}}.svg
     install -Dm0644 data/icons/hicolor/scalable/apps/{{APPID}}-symbolic.svg {{icon_dir}}/{{APPID}}-symbolic.svg
@@ -65,7 +70,7 @@ install:
 
 # Uninstall the per-user applet (no sudo)
 uninstall:
-    @[ "$(id -u)" -ne 0 ] || [ -n "${BIN_DIR:-}" ] || { echo "Run 'just uninstall' WITHOUT sudo - this is a per-user install." >&2; exit 1; }
+    @[ "$(id -u)" -ne 0 ] || [ -n "${BIN_DIR:-}" ] || [ -n "{{staged}}" ] || { echo "Run 'just uninstall' WITHOUT sudo - this is a per-user install." >&2; exit 1; }
     rm -f {{bin_dir}}/{{name}}
     rm -f {{bin_dir}}/{{name}}.sh
     rm -f {{app_dir}}/{{APPID}}.desktop
