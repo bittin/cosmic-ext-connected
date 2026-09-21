@@ -24,6 +24,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libxkbcommon-dev wayland-protocols libwayland-dev
 
+      - name: Record git sources before update
+        run: grep -E '^source = "git\+' Cargo.lock | sort -u > "$RUNNER_TEMP/git-sources.before"
+
       - name: Update COSMIC git dependencies
         run: |
           cargo update -p libcosmic
@@ -32,7 +35,8 @@ jobs:
       - name: Check for changes
         id: diff
         run: |
-          if git diff --quiet Cargo.lock; then
+          grep -E '^source = "git\+' Cargo.lock | sort -u > "$RUNNER_TEMP/git-sources.after"
+          if diff -u "$RUNNER_TEMP/git-sources.before" "$RUNNER_TEMP/git-sources.after"; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -52,8 +56,12 @@ jobs:
         run: |
           LIBCOSMIC=$(grep -A2 'name = "libcosmic"' Cargo.lock | grep 'source' | grep -oP '#\K[a-f0-9]+')
           PANEL=$(grep -A2 'name = "cosmic-panel-config"' Cargo.lock | grep 'source' | grep -oP '#\K[a-f0-9]+')
+          OLD_LIBCOSMIC=$(grep -oP 'pop-os/libcosmic#\K[a-f0-9]{8}' "$RUNNER_TEMP/git-sources.before")
+          OLD_PANEL=$(grep -oP 'pop-os/cosmic-panel#\K[a-f0-9]{8}' "$RUNNER_TEMP/git-sources.before")
           echo "libcosmic=${LIBCOSMIC:0:8}" >> "$GITHUB_OUTPUT"
           echo "panel=${PANEL:0:8}" >> "$GITHUB_OUTPUT"
+          echo "old_libcosmic=$OLD_LIBCOSMIC" >> "$GITHUB_OUTPUT"
+          echo "old_panel=$OLD_PANEL" >> "$GITHUB_OUTPUT"
 
       - name: Create pull request
         if: steps.diff.outputs.changed == 'true'
@@ -67,7 +75,7 @@ jobs:
             Automated weekly update of COSMIC ecosystem git dependencies.
 
             **Updated commits:**
-            - `libcosmic` → `${{ steps.versions.outputs.libcosmic }}`
-            - `cosmic-panel-config` → `${{ steps.versions.outputs.panel }}`
+            - `libcosmic` `${{ steps.versions.outputs.old_libcosmic }}` → `${{ steps.versions.outputs.libcosmic }}`
+            - `cosmic-panel-config` `${{ steps.versions.outputs.old_panel }}` → `${{ steps.versions.outputs.panel }}`
 
             Build and clippy checks passed.
