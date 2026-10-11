@@ -187,7 +187,7 @@ Both compose surfaces stage one file for the next send, passed through the `atta
 
 **The daemon validates nothing.** A path it cannot open becomes an empty attachment that is still dispatched, and the phone drops the whole message, text included, with no error anywhere. Every guard is ours: `stage_attachment` in `store.rs` stats the file at pick time, and `attachment_value` in `send.rs` stats it again before each send because the file can vanish in between. A failed check refuses the send rather than degrading to text-only; the compose text and chip survive for a retry.
 
-Size is advisory. Above `ATTACHMENT_SOFT_WARN_BYTES` the chip carries a warning glyph and tooltip, but the send goes ahead. Nothing in the KDE Connect chain resizes or rejects: the daemon has no size check, the Android plugin hands the decoded bytes to its MMS library as-is, and the only cap is the KDE Connect SMS desktop app's own 600,000-byte limit in its UI. A carrier may reject an oversize MMS, and nothing reports that back.
+**Size is a hard limit.** When the staged file plus the compose text is over `MMS_MAX_BYTES` (800,000 bytes), Send is disabled in both views, the update arms refuse it as well because Enter bypasses the button, and the chip carries a warning glyph and tooltip. The figure sits above KDE Connect SMS app cap of 600 KB and below the 1 MB caps carriers commonly enforce. 
 
 Each compose surface owns its own staged file, `pending_attachment` for the thread view and `new_message_pending_attachment` for New message, cleared wherever its sibling compose state is cleared. A shared field let a file staged in one surface be sent from the other with no chip in sight.
 
