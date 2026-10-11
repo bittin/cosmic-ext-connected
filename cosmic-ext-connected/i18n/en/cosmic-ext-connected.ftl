@@ -191,7 +191,7 @@ attach-file = Attach file
 remove-attachment = Remove attachment
 attachment-unreadable = File is unreadable - not attached
 attachment-missing = Attachment is no longer readable - nothing was sent
-attachment-too-large = Large attachments may be rejected by your carrier
+attachment-too-large = Too large to send - MMS is limited to 800 KB, text included
 
 # Reaction-thread merging UI
 merge-toggle-on-tooltip = Reaction replies are grouped into their conversation. Click to show as separate threads.

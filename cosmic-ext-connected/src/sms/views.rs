@@ -173,6 +173,7 @@ fn middle_truncate(s: &str, max: usize) -> String {
 /// so staging and clearing never resize the popup.
 fn attachment_control<'a>(
     staged: Option<&'a StagedAttachment>,
+    too_large: bool,
     sending: bool,
     on_attach: Message,
     on_clear: Message,
@@ -196,7 +197,7 @@ fn attachment_control<'a>(
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
     let path = att.path.to_string_lossy().to_string();
-    let (glyph, tip) = if att.oversize {
+    let (glyph, tip) = if too_large {
         (
             "dialog-warning-symbolic",
             format!("{}\n{path}", fl!("attachment-too-large")),
@@ -205,7 +206,7 @@ fn attachment_control<'a>(
         ("mail-attachment-symbolic", path)
     };
     let mut label = text::caption(middle_truncate(&full_name, CHIP_NAME_CHARS));
-    if att.oversize {
+    if too_large {
         label = label.class(cosmic::theme::Text::Custom(warning_style));
     }
 
@@ -694,13 +695,18 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
         .padding(sp.space_xs)
         .max_height(120.0);
 
+    let text = params.sms_compose_text.text();
+    let too_large = params
+        .pending_attachment
+        .is_some_and(|a| a.too_large(&text));
+
     let send_btn: Element<Message> = if params.sms_sending {
         widget::button::standard(fl!("sending"))
             .leading_icon(widget::icon::from_name("process-working-symbolic").size(16))
             .into()
     } else {
-        let can_send = (!params.sms_compose_text.text().trim().is_empty()
-            || params.pending_attachment.is_some())
+        let can_send = (!text.trim().is_empty() || params.pending_attachment.is_some())
+            && !too_large
             && !params.sms_sending;
         widget::button::suggested(fl!("send"))
             .leading_icon(widget::icon::from_name("mail-send-symbolic").size(16))
@@ -718,6 +724,7 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
             row![
                 attachment_control(
                     params.pending_attachment,
+                    too_large,
                     params.sms_sending,
                     Message::AttachToSms,
                     Message::ClearSmsAttachment,
@@ -897,9 +904,14 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
         .padding(sp.space_xs)
         .max_height(120.0);
 
+    let too_large = params
+        .pending_attachment
+        .is_some_and(|a| a.too_large(&params.body.text()));
+
     // Send button — enabled when at least one recipient and body or attachment is non-empty
     let send_enabled = !params.recipients.is_empty()
         && (!params.body.text().trim().is_empty() || params.pending_attachment.is_some())
+        && !too_large
         && !params.sending;
 
     let send_btn = if params.sending {
@@ -920,6 +932,7 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
             row![
                 attachment_control(
                     params.pending_attachment,
+                    too_large,
                     params.sending,
                     Message::AttachToNewMessage,
                     Message::ClearNewMessageAttachment,

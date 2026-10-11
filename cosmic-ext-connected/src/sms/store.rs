@@ -5,9 +5,7 @@
 use crate::app::{LoadingPhase, Message, SmsLoadingState};
 use crate::config::Config;
 use crate::constants::notifications::NORMAL_NOTIFICATION_TIMEOUT_MS;
-use crate::constants::sms::{
-    ATTACHMENT_SOFT_WARN_BYTES, MESSAGES_PER_PAGE, NEW_MESSAGE_SYNC_INDICATOR_SECS,
-};
+use crate::constants::sms::{MESSAGES_PER_PAGE, MMS_MAX_BYTES, NEW_MESSAGE_SYNC_INDICATOR_SECS};
 use crate::fl;
 use crate::sms::logical::{merge_into_logical, split_candidate_thread_ids, LogicalConversation};
 use crate::sms::{
@@ -44,8 +42,15 @@ pub struct SmsCtx<'a> {
 #[derive(Debug, Clone)]
 pub struct StagedAttachment {
     pub path: std::path::PathBuf,
-    /// Over `ATTACHMENT_SOFT_WARN_BYTES`. Sent anyway; shown on the chip.
-    pub oversize: bool,
+    /// File size at pick time, in bytes
+    pub size: u64,
+}
+
+impl StagedAttachment {
+    /// This file plus `text` exceeds `MMS_MAX_BYTES`: Send is refused and the chip says why
+    pub fn too_large(&self, text: &str) -> bool {
+        self.size + text.len() as u64 > MMS_MAX_BYTES
+    }
 }
 
 /// Reply from the store back to the parent app describing app-level
@@ -123,7 +128,7 @@ pub struct SmsConversationStore {
     pub(crate) sms_loading_state: SmsLoadingState,
     pub(crate) contacts: ContactLookup,
 
-    // File staged for the next send, with its oversize flag
+    // File staged for the next send
     pub(crate) pending_attachment: Option<StagedAttachment>,
 
     // Reply compose / send
@@ -217,8 +222,10 @@ impl SmsConversationStore {
         if !meta.is_file() {
             return SmsReply::Status(fl!("attachment-unreadable"));
         }
-        let oversize = meta.len() > ATTACHMENT_SOFT_WARN_BYTES;
-        *slot = Some(StagedAttachment { path, oversize });
+        *slot = Some(StagedAttachment {
+            path,
+            size: meta.len(),
+        });
         SmsReply::NoOp
     }
 
@@ -1137,7 +1144,11 @@ impl SmsConversationStore {
                     let message_text = self.sms_compose_text.text();
                     let has_content =
                         !message_text.trim().is_empty() || self.pending_attachment.is_some();
-                    if has_content && !self.sms_sending {
+                    let too_large = self
+                        .pending_attachment
+                        .as_ref()
+                        .is_some_and(|a| a.too_large(&message_text));
+                    if has_content && !too_large && !self.sms_sending {
                         self.sms_sending = true;
                         self.sms_sending_body = Some(message_text.clone());
                         // Apply the split-by-case rule: for symmetric merges
@@ -1175,10 +1186,11 @@ impl SmsConversationStore {
                         );
                     } else {
                         tracing::warn!(
-                            "SendSms conditions not met: text_empty={}, has_attachment={}, sending={}",
+                            "SendSms conditions not met: text_empty={}, has_attachment={}, sending={}, too_large={}",
                             message_text.trim().is_empty(),
                             self.pending_attachment.is_some(),
-                            self.sms_sending
+                            self.sms_sending,
+                            too_large
                         );
                     }
                 } else {
@@ -1480,8 +1492,13 @@ impl SmsConversationStore {
                     let body_text = self.new_message_body.text();
                     let has_content = !body_text.trim().is_empty()
                         || self.new_message_pending_attachment.is_some();
+                    let too_large = self
+                        .new_message_pending_attachment
+                        .as_ref()
+                        .is_some_and(|a| a.too_large(&body_text));
                     if !self.new_message_recipients.is_empty()
                         && has_content
+                        && !too_large
                         && !self.new_message_sending
                     {
                         let recipients: Vec<String> = self
@@ -1513,11 +1530,12 @@ impl SmsConversationStore {
                         );
                     } else {
                         tracing::warn!(
-                            "SendNewMessage conditions not met: recipients={}, body_empty={}, has_attachment={}, sending={}",
+                            "SendNewMessage conditions not met: recipients={}, body_empty={}, has_attachment={}, sending={}, too_large={}",
                             self.new_message_recipients.len(),
                             body_text.trim().is_empty(),
                             self.new_message_pending_attachment.is_some(),
-                            self.new_message_sending
+                            self.new_message_sending,
+                            too_large
                         );
                     }
                 } else {
