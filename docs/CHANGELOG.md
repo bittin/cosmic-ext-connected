@@ -9,6 +9,7 @@
 
 ### Fixed
 - The SMS reply box is no longer pushed off the bottom of short or heavily scaled screens.
+- The conversation list is no longer updated optimistically, and messages that never reached the phone no longer pin to the conversation list.
 
 ## [0.8.0] - 2026-08-30
 Connected's popup now blurs like the rest of COSMIC, and it starts KDE Connect for you instead of failing with a cryptic error, so first run works the same on Fedora, Arch and Debian as it does on Pop!_OS.
