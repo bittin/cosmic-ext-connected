@@ -6,6 +6,7 @@
 
 ### Changed
 - The Flatpak sandbox no longer has unrestricted access to the session bus. It now talks only to KDE Connect and the notification service.
+- The files Connected uses to stop two panels raising the same notification now live in your session's private runtime directory instead of `/tmp`, so no other user on the machine can read or interfere with them.
 
 ### Fixed
 - The SMS reply box is no longer pushed off the bottom of short or heavily scaled screens.

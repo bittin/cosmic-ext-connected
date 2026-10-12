@@ -7,24 +7,43 @@
 use std::fs::OpenOptions;
 use std::io::{Read, Seek, Write};
 use std::os::unix::io::AsRawFd;
+use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Directory the three dedup files live in. `$XDG_RUNTIME_DIR` is user-private
+/// and, under Flatpak, shared by every instance of this app ID. When it is unset,
+/// fall back to the system temp dir, which is the pre-0.9.0 location.
+static DEDUP_DIR: LazyLock<PathBuf> =
+    LazyLock::new(|| dedup_dir(std::env::var_os("XDG_RUNTIME_DIR")));
+
+fn dedup_dir(xdg_runtime_dir: Option<std::ffi::OsString>) -> PathBuf {
+    match xdg_runtime_dir {
+        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
+        _ => std::env::temp_dir(),
+    }
+}
+
+fn dedup_path(name: &str) -> PathBuf {
+    DEDUP_DIR.join(name)
+}
 
 /// Deduplication window in milliseconds (2 seconds).
 const DEDUP_WINDOW_MS: u128 = 2000;
 
-/// File path for file notification deduplication.
-const FILE_DEDUP_PATH: &str = "/tmp/cosmic-connected-file-dedup";
+/// File name for file notification deduplication.
+const FILE_DEDUP_PATH: &str = "cosmic-connected-file-dedup";
 
-/// File path for SMS notification deduplication.
-const SMS_DEDUP_PATH: &str = "/tmp/cosmic-connected-sms-dedup";
+/// File name for SMS notification deduplication.
+const SMS_DEDUP_PATH: &str = "cosmic-connected-sms-dedup";
 
-/// File path for call notification deduplication.
-const CALL_DEDUP_PATH: &str = "/tmp/cosmic-connected-call-dedup";
+/// File name for call notification deduplication.
+const CALL_DEDUP_PATH: &str = "cosmic-connected-call-dedup";
 
 /// Check if we should show a file notification (cross-process deduplication via file lock).
 /// Returns true if this is the first notification for this file within the dedup window.
 pub fn should_show_file_notification(file_url: &str) -> bool {
-    should_show_notification(FILE_DEDUP_PATH, file_url)
+    should_show_notification(&dedup_path(FILE_DEDUP_PATH), file_url)
 }
 
 /// Check if we should show an SMS notification (cross-process deduplication via file lock).
@@ -32,7 +51,7 @@ pub fn should_show_file_notification(file_url: &str) -> bool {
 /// Uses thread_id and message timestamp as the unique key.
 pub fn should_show_sms_notification(thread_id: i64, message_date: i64) -> bool {
     let message_key = format!("{}:{}", thread_id, message_date);
-    should_show_notification(SMS_DEDUP_PATH, &message_key)
+    should_show_notification(&dedup_path(SMS_DEDUP_PATH), &message_key)
 }
 
 /// Check if we should show a call notification (cross-process deduplication via file lock).
@@ -41,7 +60,7 @@ pub fn should_show_sms_notification(thread_id: i64, message_date: i64) -> bool {
 /// vs "missedCall") for the same number are not suppressed.
 pub fn should_show_call_notification(event: &str, phone_number: &str) -> bool {
     let key = format!("{}:{}", event, phone_number);
-    should_show_notification(CALL_DEDUP_PATH, &key)
+    should_show_notification(&dedup_path(CALL_DEDUP_PATH), &key)
 }
 
 /// Generic notification deduplication using file-based locking.
@@ -53,7 +72,7 @@ pub fn should_show_call_notification(event: &str, phone_number: &str) -> bool {
 /// 4. Determines if this notification should be shown
 /// 5. Updates the file with the new key and timestamp
 /// 6. Releases the lock
-fn should_show_notification(dedup_file: &str, key: &str) -> bool {
+fn should_show_notification(dedup_file: &Path, key: &str) -> bool {
     // Get current time as milliseconds since epoch
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -75,7 +94,7 @@ fn should_show_notification(dedup_file: &str, key: &str) -> bool {
     // Use file locking to ensure atomic read-modify-write.
     // Note: flock is blocking, which isn't ideal in async contexts. However:
     // - The lock is held for microseconds (read/compare/write ~50 bytes)
-    // - Files are in /tmp (typically tmpfs, no disk I/O)
+    // - Files are in $XDG_RUNTIME_DIR (tmpfs, no disk I/O)
     // - Contention only occurs when multiple processes receive the same D-Bus signal simultaneously
     // - spawn_blocking overhead would likely exceed the blocked time
     // The simplicity of blocking here outweighs the theoretical async executor stall risk.
@@ -124,16 +143,16 @@ mod tests {
     use std::fs;
 
     /// Generate a unique temp file path for testing
-    fn temp_dedup_path(test_name: &str) -> String {
-        format!(
-            "/tmp/cosmic-connected-test-{}-{}",
+    fn temp_dedup_path(test_name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "cosmic-connected-test-{}-{}",
             test_name,
             std::process::id()
-        )
+        ))
     }
 
     /// Clean up a temp file, ignoring errors if it doesn't exist
-    fn cleanup(path: &str) {
+    fn cleanup(path: &Path) {
         let _ = fs::remove_file(path);
     }
 
@@ -281,5 +300,32 @@ mod tests {
         assert!(should_show_notification(&path, "key-1")); // key-1 again after others
 
         cleanup(&path);
+    }
+
+    #[test]
+    fn dedup_dir_uses_xdg_runtime_dir_when_set() {
+        let dir = dedup_dir(Some(std::ffi::OsString::from("/run/user/1000")));
+        assert_eq!(dir, PathBuf::from("/run/user/1000"));
+    }
+
+    #[test]
+    fn dedup_dir_falls_back_to_temp_dir_when_unset_or_empty() {
+        let expected = std::env::temp_dir();
+        assert_eq!(dedup_dir(None), expected, "unset falls back to temp_dir");
+        assert_eq!(
+            dedup_dir(Some(std::ffi::OsString::new())),
+            expected,
+            "empty falls back to temp_dir"
+        );
+    }
+
+    #[test]
+    fn dedup_path_joins_name_under_dedup_dir() {
+        let path = dedup_path("cosmic-connected-sms-dedup");
+        assert_eq!(path.parent(), Some(DEDUP_DIR.as_path()));
+        assert_eq!(
+            path.file_name().and_then(|n| n.to_str()),
+            Some("cosmic-connected-sms-dedup")
+        );
     }
 }

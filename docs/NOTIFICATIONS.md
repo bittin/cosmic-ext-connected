@@ -125,18 +125,24 @@ COSMIC spawns multiple applet processes. Each independently receives D-Bus signa
 
 ### Solution: File-Based Locking
 
-Each notification type uses a dedicated temp file with POSIX file locking:
+Each notification type uses a dedicated file under `$XDG_RUNTIME_DIR` with POSIX file locking:
 
 | Type | Dedup file | Key format |
 |------|-----------|------------|
-| File | `/tmp/cosmic-connected-file-dedup` | `{file_url}` |
-| SMS | `/tmp/cosmic-connected-sms-dedup` | `{thread_id}:{message_date}` |
-| Call | `/tmp/cosmic-connected-call-dedup` | `{event}:{phone_number}` |
+| File | `/$XDG_RUNTIME_DIR/cosmic-connected-file-dedup` | `{file_url}` |
+| SMS | `/$XDG_RUNTIME_DIR/cosmic-connected-sms-dedup` | `{thread_id}:{message_date}` |
+| Call | `/$XDG_RUNTIME_DIR/cosmic-connected-call-dedup` | `{event}:{phone_number}` |
+
+The directory is resolved once per process (`DEDUP_DIR` in `notifications.rs`). `$XDG_RUNTIME_DIR` is user-private (mode 0700, tmpfs) and is the right place for per-session coordination files; `/tmp`, the location before 0.9.0, is world-writable with predictable names. When the variable is unset or empty the files fall back to `std::env::temp_dir()`, which is `/tmp` unless `TMPDIR` says otherwise, so a session without a runtime dir keeps the old behaviour.
+
+Under Flatpak, both `/tmp` and `$XDG_RUNTIME_DIR` inside the sandbox are private to the app ID but shared by every instance of it (host paths `$XDG_RUNTIME_DIR/.flatpak/<app-id>/tmp` and `.../xdg-run`), so the dedup works across panel instances in either location and needs no `finish-args` entry. The host's own `/tmp` is never visible to the sandbox.
 
 All use the same generic `should_show_notification()` function in `notifications.rs`:
 
 ```rust
-fn should_show_notification(dedup_file: &str, key: &str) -> bool {
+use std::path::Path;
+
+fn should_show_notification(dedup_file: &Path, key: &str) -> bool {
     // Open dedup file
     // Acquire exclusive lock with flock(fd, LOCK_EX)
     // Check if same key within 2 second window
