@@ -1093,7 +1093,12 @@ impl Application for ConnectApplet {
             },
             Message::ConfigChanged(config) => {
                 tracing::info!("Config changed: {:?}", config);
+                let merge_changed =
+                    self.config.merge_reaction_threads != config.merge_reaction_threads;
                 self.config = config;
+                if merge_changed {
+                    self.sms.rederive_conversations(&self.config);
+                }
             }
 
             // Pairing
