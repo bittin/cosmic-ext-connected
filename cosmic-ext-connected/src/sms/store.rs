@@ -1211,21 +1211,6 @@ impl SmsConversationStore {
                                 .map(|d| d.as_millis() as i64)
                                 .unwrap_or(0);
 
-                            // Update raw cache preview so an interim re-derive
-                            // (e.g. ConversationReceived for an unrelated thread)
-                            // can't clobber the optimistic update.
-                            if let Some(raw) = self
-                                .raw_conversations
-                                .iter_mut()
-                                .find(|cs| cs.thread_id == thread_id)
-                            {
-                                raw.last_message = sent_body.clone();
-                                raw.timestamp = now_ms;
-                            }
-                            self.raw_conversations
-                                .sort_by_key(|cs| std::cmp::Reverse(cs.timestamp));
-                            self.rederive_conversations(ctx.config);
-
                             // Insert optimistic message if echo hasn't already arrived.
                             // sms_sending_body is cleared by confirmed_send in
                             // ConversationMessageReceived if the echo arrived before
