@@ -2112,8 +2112,6 @@ impl Application for ConnectApplet {
                         column![
                             widget::text::heading(fl!("no-devices")),
                             widget::text::caption(fl!("no-devices-hint")),
-                            widget::button::icon(widget::icon::from_name("notification-symbolic"))
-                                .on_press(Message::ToggleSettings),
                             widget::button::standard(fl!("retry"))
                                 .on_press(Message::RetryConnection),
                         ]
