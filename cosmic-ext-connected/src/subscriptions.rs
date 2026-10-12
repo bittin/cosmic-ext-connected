@@ -18,7 +18,7 @@ use zbus::Connection;
 /// `RETRY_DELAY_SECS` apart. Connection only: proxy construction does not round
 /// tip, so wrapping it just repeats local validation errors for ten seconds.
 ///
-/// DOn `Err` the caller must terminate with `Done`; re-entering `Init` hot-loops.
+/// On `Err` the caller must terminate with `Done`; re-entering `Init` hot-loops.
 pub(crate) async fn with_dbus_retries<T, E, F, Fut>(label: &str, mut op: F) -> Result<T, E>
 where
     F: FnMut() -> Fut,
@@ -51,7 +51,7 @@ where
 
 /// Re-issue `requestConversation` on the Conversations interface as part of the
 /// first-open truncation recovery path. The daemon worker treats `[start, end)`
-/// as indices into the local store sorted newest-first.
+/// as indices into its in-memory cache for the thread, sorted newest-first.
 ///
 /// `start` is pinned to **0** and only `end` varies. Requesting `[numKnown, …)` -
 /// the contract this used to follow - segfaults kdeconnectd 23.08.5 whenever the
@@ -671,20 +671,22 @@ enum ConversationMessageState {
         thread_id: i64,
         device_id: String,
         messages_per_page: u32,
-        /// Set when `conversationLoaded` arrives; enables phone_deadline.
+        /// Set once `conversationLoaded` has been seen (or the load completed on its
+        /// page); disarms the no-signal net; `phone_deadline` takes over from here.
         local_store_done: bool,
         /// Total message count from `conversationLoaded` signal.
         total_message_count: Option<u64>,
-        /// Deadline for phone to START responding. Set when `conversationLoaded` arrives.
-        /// When it fires, `ConversationLoadComplete` is emitted once and the subscription
-        /// continues listening with a heartbeat sleep.
+        /// Armed by `conversationLoaded`. On a fetch the page follows that signal within a
+        /// millisecond and completes the load on the count target. This fires only when the
+        /// page never fills: `ConversationLoadComplete` once, or the one-shot retry when
+        /// at most one message arrived. The subscription continues with a heartbeat sleep.
         phone_deadline: Option<tokio::time::Instant>,
         /// Whether `ConversationLoadComplete` has been emitted. Once true, the subscription
         /// continues silently with a heartbeat sleep until iced drops it.
         load_complete_emitted: bool,
-        /// Count of `conversationUpdated` signals forwarded for this thread. Used to
-        /// detect the first-open truncation case (daemon's local store had only a
-        /// single message when the Conversations worker ran) at phone_deadline expiry.
+        /// Count of `conversationUpdated` signals forwarded for this thread. Compared
+        /// against the completion target on every pass, and against the one-shot retry's
+        /// `<= 1` threshold at `phone_deadline` expiry.
         received_message_count: usize,
         /// Whether the one-shot truncation-recovery retry has fired. Bounds retries
         /// to one across both triggers (`docs/SMS.md`, "first-open truncation").
@@ -703,7 +705,9 @@ const MESSAGE_HEARTBEAT_SLEEP_SECS: u64 = 30;
 /// 1. Setting up D-Bus match rules for signals
 /// 2. Firing the request_conversation D-Bus call (AFTER rules are set up)
 /// 3. Listening for `conversationUpdated` signals (individual messages)
-/// 4. Emitting `ConversationLoadComplete` when phone deadline fires (initial load done)
+/// 4. Emitting `ConversationLoadComplete` once `received >= min(page, conversationLoaded
+///    count)` or when a clock fires with the page unfilled (`PHONE_RESPONSE_TIMEOUT_MS`
+///    after `conversationLoaded`, `MESSAGE_SUBSCRIPTION_TIMEOUT_SECS` of silence before it)
 /// 5. Continuing to listen for new messages until the conversation is closed
 ///
 /// The subscription runs as long as the conversation is open. It is canceled by
@@ -804,20 +808,17 @@ pub fn conversation_message_subscription(
                     let device_path =
                         format!("{}/devices/{}", kdeconnect_dbus::BASE_PATH, device_id);
 
-                    // Fire TWO requests:
-                    // 1. SMS plugin's requestConversation → sends network packet to phone →
-                    //    response goes through addMessages() → populates m_conversations
-                    //    (required for replyToConversation to look up addresses)
-                    // 2. Conversations interface's requestConversation → reads from local
-                    //    store via RequestConversationWorker → emits per-message signals
-                    //    (required for our subscription to receive all messages)
-                    //
-                    // The SMS plugin request primes the daemon cache; the Conversations
-                    // request provides the per-message signals for UI display.
+                    // Two requests on open:
+                    // 1. SMS plugin's requestConversation → network packet to phone →
+                    //    response goes through addMessages() into m_conversations
+                    // 2. Conversations interface's requestConversation →
+                    //    RequestConversationWorker pages the cache, fetching from the
+                    //    phone first if the cache cannot fill the page → per-message
+                    //    signals our subscription consumes
                     let sms_path =
                         format!("{}/devices/{}/sms", kdeconnect_dbus::BASE_PATH, device_id);
 
-                    // Fire SMS plugin request first (cache priming, async - phone responds later)
+                    // Fire the SMS plugin request first (async; see above)
                     match kdeconnect_dbus::plugins::SmsProxy::builder(&conn)
                         .path(sms_path.as_str())
                         .ok()
@@ -835,7 +836,7 @@ pub fn conversation_message_subscription(
                                     );
                                 } else {
                                     tracing::debug!(
-                                        "SMS plugin request_conversation fired for thread {} (cache priming)",
+                                        "SMS plugin request_conversation fired for thread {}",
                                         thread_id
                                     );
                                 }
@@ -961,7 +962,10 @@ pub fn conversation_message_subscription(
                     let local_store_timeout =
                         std::time::Duration::from_secs(MESSAGE_SUBSCRIPTION_TIMEOUT_SECS);
                     let phone_wait = std::time::Duration::from_millis(PHONE_RESPONSE_TIMEOUT_MS);
-                    // Hard deadline only for local store phase (before conversationLoaded)
+                    // No-signal net, armed until `conversationLoaded` is seen or the load
+                    // completes. Recomputed on every re-entry to `Listening`, i.e. after
+                    // every received message, so it is an inactivity timer, not a deadline
+                    // measured from the open.
                     let local_store_deadline = if !local_store_done && !load_complete_emitted {
                         Some(tokio::time::Instant::now() + local_store_timeout)
                     } else {
@@ -1009,12 +1013,15 @@ pub fn conversation_message_subscription(
                             ));
                         }
 
-                        // Check local store hard timeout (Phase 1 safety net)
+                        // No-signal net: nothing arrived for MESSAGE_SUBSCRIPTION_TIMEOUT_SECS
+                        // and `conversationLoaded` has not been seen. The phone never answered
+                        // or a >= 26.08.0 daemon had nothing cached for the thread and
+                        // emitted nothing (`0dc666ad9`).
                         if let Some(lsd) = local_store_deadline {
                             if !local_store_done && !load_complete_emitted && now >= lsd {
                                 tracing::info!(
-                                    "Subscription: local store timeout for thread {} \
-                                     (conversationLoaded never received), signaling load complete",
+                                    "Subscription: no signal for thread {} within the inactivity \
+                                     net (conversationLoaded never received), signaling load complete",
                                     thread_id
                                 );
                                 load_complete_emitted = true;
@@ -1040,24 +1047,26 @@ pub fn conversation_message_subscription(
                             }
                         }
 
-                        // Check phone deadline (Phase 2 → Phase 3 transition).
+                        // `PHONE_RESPONSE_TIMEOUT_MS` elapsed after `conversationLoaded` with
+                        // the page still unfilled. Normally the page follows that signal within
+                        // a millisecond and completes the load on the count target above, so
+                        // arriving here means the daemon had little or nothing to page from.
                         //
-                        // Fallback trigger (`docs/SMS.md`, "first-open truncation"):
-                        // if the phone deadline expires after the local store
-                        // delivered at most one message, the daemon's first-open
-                        // Conversations worker likely finished before the
-                        // phone-supplied messages were written to the local store.
-                        // Re-issue requestConversation on the Conversations
-                        // interface — by now the local store contains the phone
-                        // data — and let those signals stream through normally.
-                        // Bound to one attempt.
+                        // One-shot retry (`docs/SMS.md`, "first-open truncation"): at most one
+                        // message received means the thread was opened before the list
+                        // bootstrap cached its head (the worker paged from an empty or
+                        // one-message cache), or the thread has a single message and the
+                        // fetch returned it as a duplicate. The daemon inserts the phone batch
+                        // before it emits `conversationLoaded`, so a re-issued Conversations
+                        // interface read pages the full thread. Bound to one attempt; a short
+                        // page with more than one message completes as is.
                         if !load_complete_emitted {
                             if let Some(pd) = phone_deadline {
                                 if now >= pd {
                                     if !retry_attempted && received_message_count <= 1 {
                                         tracing::info!(
                                             "Subscription: thread {} truncation suspected \
-                                             ({} message(s) after phone deadline), retrying \
+                                             ({} message(s) after the phone window), retrying \
                                              Conversations interface read (fallback path)",
                                             thread_id,
                                             received_message_count
@@ -1131,15 +1140,15 @@ pub fn conversation_message_subscription(
                             }
                         }
 
-                        // Compute sleep duration based on phase
+                        // Sleep until the next clock that can act
                         let wait_duration = if load_complete_emitted {
-                            // Phase 3: long heartbeat, just keeping unfold alive
+                            // Load complete: long heartbeat, just keeping unfold alive
                             tokio::time::Duration::from_secs(MESSAGE_HEARTBEAT_SLEEP_SECS)
                         } else if let Some(pd) = phone_deadline {
-                            // Phase 2: sleep until phone deadline
+                            // `conversationLoaded` seen: sleep until the phone window elapses
                             pd.saturating_duration_since(now)
                         } else if let Some(lsd) = local_store_deadline {
-                            // Phase 1: sleep until local store hard timeout
+                            // Nothing seen yet: sleep until the no-signal net fires
                             lsd.saturating_duration_since(now)
                         } else {
                             // Fallback heartbeat
@@ -1202,7 +1211,9 @@ pub fn conversation_message_subscription(
                                                     }
                                                 }
 
-                                                // Handle conversationLoaded signals (local store done)
+                                                // conversationLoaded: the phone answered and the daemon
+                                                // now holds `message_count` for this thread. On a fetch
+                                                // the worker's page follows within a millisecond.
                                                 if iface_str == "org.kde.kdeconnect.device.conversations"
                                                     && member_str == "conversationLoaded"
                                                 {
@@ -1223,7 +1234,7 @@ pub fn conversation_message_subscription(
                                                                 // is already running.
                                                                 tracing::info!(
                                                                     "Subscription: retry conversationLoaded for thread {}, \
-                                                                     {} messages in store",
+                                                                     daemon holds {}",
                                                                     thread_id,
                                                                     message_count
                                                                 );
@@ -1233,26 +1244,23 @@ pub fn conversation_message_subscription(
                                                                 && received_message_count
                                                                     < messages_per_page as usize
                                                             {
-                                                                // Primary trigger: the daemon
-                                                                // re-emitted conversationLoaded
-                                                                // (its `addMessages()` told us the
-                                                                // local store grew) but we got
-                                                                // fewer per-message signals than
-                                                                // the store now reports, and we
-                                                                // haven't filled a page yet — i.e.
-                                                                // a deficit in our requested
-                                                                // initial range. Covers both the
-                                                                // original "received only 1 of N"
-                                                                // truncation and the off-by-one
-                                                                // case (e.g. store=4, received=3)
-                                                                // observed for some short threads.
-                                                                // The page-size guard avoids
-                                                                // triggering on natural scroll
-                                                                // pagination boundaries.
+                                                                // Second `conversationLoaded` before the
+                                                                // load completed, reporting more than we
+                                                                // have received while the page is still
+                                                                // unfilled. The measured daemon has no
+                                                                // producer for this on a single open
+                                                                // (each batch emits once and its page
+                                                                // follows it); the remaining case is a
+                                                                // list-storm duplicate landing in the
+                                                                // millisecond between the emit and the
+                                                                // page. Kept as a harmless one-shot
+                                                                // re-read (offset pinned to 0); the
+                                                                // page-size guard keeps it off natural
+                                                                // pagination boundaries
                                                                 tracing::info!(
                                                                     "Subscription: thread {} duplicate conversationLoaded \
-                                                                     (store={}, received={}), retrying Conversations \
-                                                                     interface read (Option 1 path)",
+                                                                     (cached={}, received={}), retrying Conversations \
+                                                                     interface read (second conversationLoaded)",
                                                                     thread_id,
                                                                     message_count,
                                                                     received_message_count
@@ -1282,7 +1290,7 @@ pub fn conversation_message_subscription(
                                                             } else {
                                                                 tracing::debug!(
                                                                     "Subscription: conversationLoaded for thread {}, \
-                                                                     {} messages in store. Waiting up to {:?} for phone...",
+                                                                     daemon holds {}; page expected to follow, window {:?}",
                                                                     thread_id,
                                                                     message_count,
                                                                     phone_wait

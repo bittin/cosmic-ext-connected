@@ -20,13 +20,13 @@ fn attachment_value(path: &std::path::Path) -> Result<Value<'static>, String> {
 
 /// Send an SMS reply to an existing conversation using replyToConversation.
 ///
-/// Uses the Conversations D-Bus interface with a thread ID. The daemon looks up
-/// addresses from its in-memory `m_conversations` cache, which is populated when
-/// the user opens the conversation (our SMS plugin `requestConversation` call
-/// primes it). This preserves thread context for group messages.
+/// Uses the Conversations D-Bus interface with a thread ID. The daemon resolves the
+/// addresses from the oldest message in its in-memory `m_conversations` cache, for
+/// the thread, which the thread open's Conversations-interface read fills; the SMS plugin
+/// `requestConversation` call primes nothing. This preserves thread context for group messages.
 ///
 /// Note: `replyToConversation` silently no-ops if the cache is empty (no D-Bus
-/// error). The cache is reliably primed by our conversation loading flow.
+/// error), and `Ok` is not delivery (`docs/DBUS.md`).
 pub async fn send_sms_async(
     conn: Arc<Mutex<Connection>>,
     device_id: String,

@@ -8,7 +8,7 @@ use zbus::Connection;
 
 /// Ask the daemon to serve an older page of a conversation. The already-running
 /// per-thread subscription receives the resulting `conversationUpdated` signals
-/// through its normal phase-3 path (`subscriptions.rs`), so this fires the
+/// through its post-completion listening (`subscriptions.rs`), so this fires the
 /// request and returns - it does NOT collect the reply. Completion is detected
 /// in the store from the streamed messages / `ConversationStoreLoaded`.
 ///

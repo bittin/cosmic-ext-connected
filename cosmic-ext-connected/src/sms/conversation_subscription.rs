@@ -185,15 +185,11 @@ pub fn conversation_list_subscription(
                         known_conversations.insert(conversation.thread_id, conversation.timestamp);
                     }
 
-                    // Fire TWO requests (mirrors the pattern from conversation message loading):
-                    // 1. SMS plugin's requestAllConversations → sends network packet to phone →
-                    //    response goes through addMessages() → populates m_conversations and
-                    //    emits conversationCreated signals
-                    // 2. Conversations interface's requestAllConversationThreads → may read
-                    //    from local store → emits signals for cached conversations
-                    //
-                    // Without the SMS plugin request, the Conversations interface may only
-                    // read from an empty local store and emit no signals.
+                    // Fire TWO requests: both put the same `requestAllConversations` packet on the
+                    // wire (the Conversations interface call is a one-line delegate to the plugin
+                    // upstream), so every cached thread streams twice per bootstrap. Neither call
+                    // reads the cache; what the list sees is the phone's answer, delivered through
+                    // addMessages() as conversationCreated / conversationUpdated.
                     request_conversation_bootstrap(&conn, &device_id, &conversations_proxy).await;
 
                     let now = tokio::time::Instant::now();
@@ -661,7 +657,7 @@ async fn request_conversation_bootstrap(
                 );
             } else {
                 tracing::debug!(
-                    "SMS plugin requestAllConversations fired for device {} (cache priming)",
+                    "SMS plugin requestAllConversations fired for device {} (bootstrap)",
                     device_id
                 );
             }

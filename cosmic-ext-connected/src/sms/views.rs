@@ -242,7 +242,7 @@ pub struct ConversationListParams<'a> {
     pub conversations: &'a [LogicalConversation],
     pub contacts: &'a ContactLookup,
     pub loading_state: &'a SmsLoadingState,
-    /// Whether background sync is active (syncing conversations from phone)
+    /// Whether incremental loading is active (syncing conversations from phone)
     pub sync_active: bool,
     /// Current value of `config.merge_reaction_threads`. Drives the header
     /// toggle's icon + tooltip; also controls whether per-entry merge
@@ -267,7 +267,7 @@ pub fn view_conversation_list(params: ConversationListParams<'_>) -> Element<'_,
     .spacing(sp.space_xxs)
     .align_y(Alignment::Center);
 
-    // Show sync indicator when background sync is active
+    // Show sync indicator when incremental loading is active
     if params.sync_active {
         header_row = header_row.push(
             widget::tooltip(
@@ -457,7 +457,7 @@ pub struct MessageThreadParams<'a> {
     pub loading_state: &'a SmsLoadingState,
     pub sms_compose_text: &'a widget::text_editor::Content,
     pub sms_sending: bool,
-    /// Whether background sync is active (syncing messages from phone)
+    /// Whether incremental loading is active (syncing messages from phone)
     pub sync_active: bool,
     /// UID of message bubble currently being pressed (for visual feedback)
     pub pressed_bubble_uid: Option<i32>,
@@ -511,7 +511,7 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
     .spacing(sp.space_xxs)
     .align_y(Alignment::Center);
 
-    // Show sync indicator when background sync is active
+    // Show sync indicator when incremental loading is active
     if params.sync_active {
         header_row = header_row.push(
             widget::tooltip(

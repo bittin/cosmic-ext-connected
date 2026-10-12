@@ -297,12 +297,14 @@ pub enum Message {
         thread_id: i64,
         message: SmsMessage,
     },
-    /// Local store read complete - scroll to bottom, keep listening for phone data
+    /// `conversationLoaded` arrived: the daemon holds `total_count` for this thread.
+    /// Scroll to newest and keep listening; on a fetch the page follows this signal.
     ConversationStoreLoaded {
         thread_id: i64,
         total_count: u64,
     },
-    /// All loading complete (phone response timeout) - finalize and drop subscription
+    /// Initial load complete (page target met, or a clock fired with it unfilled).
+    /// Finalize; the subscription keeps listening until the conversation closes.
     ConversationLoadComplete {
         thread_id: i64,
         total_count: u64,
@@ -1412,7 +1414,8 @@ impl Application for ConnectApplet {
                         .is_some_and(|(id, convs)| id == &device_id && !convs.is_empty());
 
                     if has_cache {
-                        // Use in-memory cached conversations, enable subscription for background refresh
+                        // Show the cached list now; the list subscription streams the
+                        // daemon's bootstrap on top of it
                         self.sms.sms_loading_state = SmsLoadingState::Idle; // Show cached data immediately
                         self.sms.conversation_sync_active = true; // Show sync indicator
                         self.sms.conversation_list_subscription_active = true; // Enable subscription
@@ -1421,7 +1424,7 @@ impl Application for ConnectApplet {
                             self.sms.conversations.len(),
                             device_id
                         );
-                        // Subscription will handle background sync
+                        // The list subscription takes it from here
                         return contacts_task;
                     } else if has_prefetch {
                         // Use prefetched conversations from device selection
@@ -1540,8 +1543,9 @@ impl Application for ConnectApplet {
                     self.sms.conversation_load_active = true;
                     self.sms.initial_load_complete = false;
 
-                    // Always load through daemon to ensure its cache is primed
-                    // (replyToConversation requires the daemon to have loaded the conversation)
+                    // Always open through the daemon: `replyToConversation` resolves addresses
+                    // from its in-memory cache, which the Conversations-interface read fills
+                    // when the thread is paged
                     self.sms.sms_loading_state =
                         SmsLoadingState::LoadingMessages(LoadingPhase::Connecting);
                     self.sms.message_sync_active = false;

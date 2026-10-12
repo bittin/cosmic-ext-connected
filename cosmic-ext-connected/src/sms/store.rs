@@ -926,7 +926,7 @@ impl SmsConversationStore {
                 // in view as messages stream in. Necessary because the daemon's
                 // worker emits `conversationLoaded` only when it actually
                 // fetched fresh phone data (see daemon's
-                // `addMessages()` → `conversationLoaded`); for cached-store
+                // `addMessages()` → `conversationLoaded`); for cache-served
                 // hits the worker just emits per-message signals and finishes
                 // silently, so `ConversationStoreLoaded` and
                 // `ConversationLoadComplete` never fire and the scroll stays
@@ -951,10 +951,10 @@ impl SmsConversationStore {
                 thread_id,
                 total_count,
             } => {
-                // Local store read complete - scroll to show messages while
-                // continuing to listen for phone response data. Each fanned-out
-                // subscription emits its own ConversationStoreLoaded; accept any
-                // signal whose thread is in the open merged set.
+                // `conversationLoaded` arrived - scroll to show messages while the page (on
+                // a fetch) and any later phone data stream in. Each fanned-out subscription
+                // emits its own ConversationStoreLoaded; accept any signal whose thread is
+                // in the open merged set.
                 if !self.current_merged_thread_ids.contains(&thread_id) {
                     return (cosmic::app::Task::none(), SmsReply::NoOp);
                 }
@@ -980,7 +980,7 @@ impl SmsConversationStore {
                     return (cosmic::app::Task::none(), SmsReply::NoOp);
                 }
                 tracing::info!(
-                    "Local store loaded for thread {}: {} messages displayed, {} total in store",
+                    "conversationLoaded for thread {}: {} messages displayed across the merged set, daemon holds {} for this thread",
                     thread_id,
                     self.messages.len(),
                     total_count
@@ -1674,7 +1674,7 @@ impl SmsConversationStore {
     pub fn subscriptions(&self) -> Vec<Subscription<Message>> {
         let mut subs: Vec<Subscription<Message>> = Vec::new();
 
-        // Conversation list subscription (incremental loading + background sync)
+        // Conversation list subscription (incremental loading)
         if self.conversation_list_subscription_active {
             if let Some(device_id) = self.sms_device_id.clone() {
                 let generation = self.conversation_list_subscription_generation;
