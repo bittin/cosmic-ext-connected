@@ -1465,6 +1465,10 @@ impl Application for ConnectApplet {
                 // Keep sms_device_id, sms_device_name, conversations, contacts
                 // for when user returns to SMS view
                 self.sms.messages.clear();
+                self.sms.known_message_ids.clear();
+                self.sms.thread_has_more.clear();
+                self.sms.messages_has_more = true;
+                self.sms.older_page = None;
                 self.sms.current_thread_id = None;
                 self.sms.current_thread_addresses = None;
                 self.sms.current_merged_thread_ids.clear();
