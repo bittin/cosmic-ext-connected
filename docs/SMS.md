@@ -32,8 +32,9 @@ Three consequences the rest of this document depends on:
   an edge case; it is every first SMS open after a daemon restart or a login.
 - **`activeConversations()` is a pure local read** of that map (newest message per thread). It
   sends nothing to the phone, so it cannot warm a cold cache - it can only report one. The only
-  call that warms it is the SMS plugin's `requestAllConversations()`, which sends
-  `PACKET_TYPE_SMS_REQUEST_CONVERSATIONS`.
+  call that warms it is the SMS plugin's `requestAllConversations()` (the Conversations interface's
+  `requestAllConversationThreads()` is a one-line delegate to it and is the call Connected makes),
+  which sends `PACKET_TYPE_SMS_REQUEST_CONVERSATIONS`.
 - **`conversationLoaded` is not a "finished reading storage" event.** It is emitted only from
   `addMessages()`, so it means "the phone delivered a batch", and its count is
   `m_known_messages[id].size()` - distinct UIDs held in memory right now.
@@ -269,7 +270,7 @@ D-Bus surface:
 
 - Device base path: `/modules/kdeconnect/devices/{id}`
 - Conversations interface: `org.kde.kdeconnect.device.conversations` (signals: `conversationCreated`, `conversationUpdated`, `conversationLoaded`)
-- SMS plugin path: `/modules/kdeconnect/devices/{id}/sms` (`org.kde.kdeconnect.device.sms`) — used for cache priming via `requestConversation` / `requestAllConversations`
+- SMS plugin path: `/modules/kdeconnect/devices/{id}/sms` (`org.kde.kdeconnect.device.sms`) — used by the thread open's `requestConversation`; the list bootstrap goes through the Conversations interface
 
 ### Message Types
 

@@ -12,9 +12,7 @@ use crate::constants::sms::{
 };
 use crate::subscriptions::with_dbus_retries;
 use futures_util::StreamExt;
-use kdeconnect_dbus::plugins::{
-    parse_sms_message, ConversationSummary, ConversationsProxy, SmsProxy,
-};
+use kdeconnect_dbus::plugins::{parse_sms_message, ConversationSummary, ConversationsProxy};
 use std::collections::HashMap;
 use zbus::{Connection, Proxy};
 
@@ -185,12 +183,9 @@ pub fn conversation_list_subscription(
                         known_conversations.insert(conversation.thread_id, conversation.timestamp);
                     }
 
-                    // Fire TWO requests: both put the same `requestAllConversations` packet on the
-                    // wire (the Conversations interface call is a one-line delegate to the plugin
-                    // upstream), so every cached thread streams twice per bootstrap. Neither call
-                    // reads the cache; what the list sees is the phone's answer, delivered through
-                    // addMessages() as conversationCreated / conversationUpdated.
-                    request_conversation_bootstrap(&conn, &device_id, &conversations_proxy).await;
+                    // One bootstrap request; the daemon streams the phone's answer as
+                    // conversationCreated / conversationUpdated. Neither interface reads the cache.
+                    request_conversation_bootstrap(&device_id, &conversations_proxy).await;
 
                     let now = tokio::time::Instant::now();
 
@@ -361,7 +356,6 @@ pub fn conversation_list_subscription(
                                         known_conversations.len()
                                     );
                                     request_conversation_bootstrap(
-                                        &conn,
                                         &device_id,
                                         &conversations_proxy,
                                     )
@@ -631,46 +625,16 @@ async fn fetch_cached_conversations(
     conversations
 }
 
+/// Ask the daemon for the conversation list. `requestAllConversationThreads` is a
+/// one line delegate to the SMS plugin's `requestAllConversations` upstream, so one
+/// call puts one `PACKET_TYPE_SMS_REQUEST_CONVERSATIONS` on the wire; the deamon
+/// re-streams every thread it then receives as `conversationCreated` /
+/// `conversationUpdated`. Calling both interfaces, as this did until 0.9.0, sent the
+/// packet twice and streamed the list twice per bootstrap.
 async fn request_conversation_bootstrap(
-    conn: &Connection,
     device_id: &str,
     conversations_proxy: &ConversationsProxy<'_>,
 ) {
-    let sms_path = format!("{}/devices/{}/sms", kdeconnect_dbus::BASE_PATH, device_id);
-    let sms_builder = match SmsProxy::builder(conn).path(sms_path.as_str()) {
-        Ok(builder) => builder,
-        Err(_) => {
-            tracing::warn!(
-                "Failed to build SMS proxy path for {} (non-fatal)",
-                device_id
-            );
-            return;
-        }
-    };
-    match sms_builder.build().await {
-        Ok(sms_proxy) => {
-            if let Err(e) = sms_proxy.request_all_conversations().await {
-                tracing::warn!(
-                    "SMS plugin requestAllConversations failed for {} (non-fatal): {}",
-                    device_id,
-                    e
-                );
-            } else {
-                tracing::debug!(
-                    "SMS plugin requestAllConversations fired for device {} (bootstrap)",
-                    device_id
-                );
-            }
-        }
-        Err(e) => {
-            tracing::warn!(
-                "Failed to create SMS proxy for {} (non-fatal): {}",
-                device_id,
-                e
-            );
-        }
-    }
-
     tracing::debug!(
         "Firing requestAllConversationThreads for device {}",
         device_id
