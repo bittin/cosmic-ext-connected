@@ -55,9 +55,8 @@ pub mod sms {
     /// for genuine stalls
     pub const MESSAGE_SUBSCRIPTION_TIMEOUT_SECS: u64 = 20;
 
-    /// How long to wait for the phone to start responding with message data after
-    /// conversationLoaded (milliseconds). When this fires, ConversationLoadComplete
-    /// is emitted (initial load done) but the subscription continues listening.
+    /// Net after `conversationLoaded` when the page never fills;
+    /// normally completion is derived from the received count.
     pub const PHONE_RESPONSE_TIMEOUT_MS: u64 = 8000;
 
     /// How long to wait for the retried Conversations-interface call to settle when

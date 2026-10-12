@@ -943,19 +943,21 @@ pub fn conversation_message_subscription(
                     mut received_message_count,
                     mut retry_attempted,
                 } => {
-                    // Two-phase loading, then long-lived listening:
+                    // Initial load, then long-lived listening. What the daemon does on a
+                    // thread open:
                     //
-                    // Phase 1 (before conversationLoaded): Local store signals arrive.
-                    //   Hard timeout (MESSAGE_SUBSCRIPTION_TIMEOUT_SECS) as safety net
-                    //   in case conversationLoaded never fires.
+                    // - Cache-served: the worker emits a full page of `conversationUpdated`
+                    //   at once and no `conversationLoaded`. Completion is the page count.
+                    // - Fetched: the worker emits what it holds and blocks until the phone
+                    //   answers; `addMessages` then inserts the batch, emits
+                    //   `conversationLoaded(count)` and releases the worker, whose page
+                    //   signals are queued behind that emit. `conversationLoaded` therefore
+                    //   arrives BEFORE the page's remaining messages. Completion is
+                    //   `received >= min(page, count)`, checked at the top of every pass.
                     //
-                    // Phase 2 (after conversationLoaded): phone_deadline (8s) waits for
-                    //   the phone to respond. When it fires, ConversationLoadComplete is
-                    //   emitted to signal initial load is done.
-                    //
-                    // Phase 3 (after load complete): Subscription continues silently with
-                    //   a heartbeat sleep, catching new messages (including sent echoes)
-                    //   until iced drops it on CloseConversation.
+                    // After completion the subscription keeps listening with a heartbeat
+                    // sleep, catching new messages (including sent echoes) until iced drops
+                    // it on CloseConversation.
                     let local_store_timeout =
                         std::time::Duration::from_secs(MESSAGE_SUBSCRIPTION_TIMEOUT_SECS);
                     let phone_wait = std::time::Duration::from_millis(PHONE_RESPONSE_TIMEOUT_MS);
@@ -969,25 +971,20 @@ pub fn conversation_message_subscription(
                     loop {
                         let now = tokio::time::Instant::now();
 
-                        // Phase-1 completion: full cached page already delivered.
-                        //
-                        // The daemon's RequestConversationWorker serves messages from its
-                        // local store and, when it satisfies the whole request from cache
-                        // (`numHandled >= howMany`), returns WITHOUT emitting
-                        // `conversationLoaded` (docs/SMS.md). Phase 1 then has no signal-driven
-                        // completion and would sit on the MESSAGE_SUBSCRIPTION_TIMEOUT_SECS hard
-                        // timeout. Detect it locally: a full page of per-message signals means
-                        // the initial load is done. The subscription keeps running (phase 3) to
-                        // catch later phone data, so completing now loses nothing.
-                        if !load_complete_emitted
-                            && !local_store_done
-                            && received_message_count >= messages_per_page as usize
-                        {
+                        // Completion target: a full page, or everything the daemon says it holds for
+                        // this thread, whichever is smaller. `conversationLoaded` arrives before the
+                        // worker's page when the daemon fetched (Model §2), so the target must not be
+                        // gated on whether it has been seen; `load_complete_emitted` prevents re-firing.
+                        let target = total_message_count
+                            .filter(|n| *n > 0)
+                            .map(|n| (n as usize).min(messages_per_page as usize))
+                            .unwrap_or(messages_per_page as usize);
+                        if !load_complete_emitted && received_message_count >= target {
                             tracing::info!(
-                                "Subscription: thread {} received full page ({} messages, \
-                                conversationLoaded withheld), signaling load complete",
+                                "Subscription: thread {} received {} of target {} messages, signaling load complete",
                                 thread_id,
-                                received_message_count
+                                received_message_count,
+                                target
                             );
                             local_store_done = true;
                             load_complete_emitted = true;
