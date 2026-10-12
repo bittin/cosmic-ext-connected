@@ -63,15 +63,15 @@ Important details:
 
 ### Message Thread Loading
 
-Thread loading uses a long-lived subscription with distinct startup phases:
+Thread loading uses a long-lived subscription:
 
 1. Opening a thread starts `conversation_message_subscription`.
 2. Match rules are installed before requests are fired.
 3. Two `requestConversation()` calls are made:
    - SMS plugin request for daemon cache priming
    - Conversations request for per-message UI signals
-4. The cached-read phase ends at `conversationLoaded`.
-5. A phone-response window stays open after that to catch delayed phone data.
+4. If the daemon's cache holds a full page, the per-message signals arrive at once and the load completes on the tenth. If it has to fetch from the phone, `conversationLoaded` arrives first with the daemon's count and the page follows it within a millisecond; the load completes when `received >= min(page, count)`.
+5. `PHONE_RESPONSE_TIMEOUT_MS` is a net for a page that never fills, not the normal completion.
 6. The subscription then continues listening for new incoming messages and sent-message echoes until the thread closes.
 
 Important details:
