@@ -102,13 +102,21 @@ App and version information is on the **About** page, reached from the identity 
 Work down this list:
 
 1. **KDE Connect is running on your phone**, and phone and desktop are on the same network.
-2. **The firewall allows ports 1714-1764**, TCP and UDP. Fedora's `FedoraWorkstation` zone opens them, but **the COSMIC spin defaults to the `public` zone, which does not** - installing KDE Connect does not change the firewall, so the daemon runs and no phone is ever found.
+2. **The firewall allows ports 1714-1764**, TCP and UDP. Installing KDE Connect does not change the firewall on most distributions, so the daemon runs and no phone is found. `kdeconnect-cli -l` reporting `0 devices found` confirms that ports are blocked to it and not just Connected.
+ - **ufw** (Pop!_OS, Ubuntu, Debian): When ufw is enabled, it defaults to denying all incoming traffic, including the ports that `kdeconnect` requires. To open the range:
+   ```sh
+   sudo ufw status verbose    #"Status: active" and "deny incoming" mean ufw is blocking the ports.
+   sudo ufw allow 1714:1764/udb
+   sudo ufw allow 1714:1764/tcp
+   ```
+
+ - **firewalld** (Fedora): the `Fedoraworkstation` zone opens these ports, but the COSMIC spin defaults to the `public` zone, which does not. firewalld ships a `kdeconnect` service definition covering the whole range.
    ```sh
    firewall-cmd --get-active-zones                         # which zone am I in?
    sudo firewall-cmd --permanent --add-service=kdeconnect  # note: no hyphen
    sudo firewall-cmd --reload
    ```
-   firewalld ships the `kdeconnect` service definition itself, covering 1714-1764 on TCP and UDP.
+   These rules open the ports to every device on whatever network you are connected to; KDE Connect's pairing, not the firewall, is what keeps unpaired devices out. Care should be taken when connecting to public networks.
 
 ### "KDE Connect was not found"
 
