@@ -31,6 +31,22 @@ In the captured case the daemon emitted `eventField 0`, an empty body and an emp
 
 Captured 2026-07-26 against kdeconnect 23.08.5 on a self-thread. Most sends on the same daemon render normally.
 
+## Text Sent with a Photo Over RCS Is Missing
+
+When the phone sends a photo with text as an RCS chat message, Connected shows the photo but not the text. Plain RCS text messages and photos received as MMS are unaffected. This is an Android limitation, not an applet bug.
+
+### Symptoms
+- A photo sent from the phone with a caption, in a conversation where the phone's messaging app shows "RCS message", appears in Connected without its caption
+- Text-only RCS messages in the same conversation show normally
+- The recipient receives both the photo and the text
+
+### Technical details
+
+Android gives third-party apps no RCS API. Samsung Messages exposes an RCS photo through the MMS store with no text part and a non-standard message box (KDE Connect reports it as type 0), so the caption never reaches KDE Connect.
+This affects every KDE Connect desktop client, not only Connected. Related upstream: [KDE bug 464654](https://bugs.kde.org/show_bug.cgi?id=464654) (sending RCS).
+
+Captured 2026-10-14 against kdeconnect 23.08.5 with Samsung Messages on a Galaxy S24+.
+
 ## Popup Does Not Reopen After a Double-Click in the File Chooser
 
 Choosing an attachment opens the system file chooser, which takes focus and closes the applet popup. Connected reopens the popup when the chooser returns, chosen or cancelled, except when the file was chosen by double-click.
