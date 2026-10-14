@@ -42,10 +42,11 @@ When the phone sends a photo with text as an RCS chat message, Connected shows t
 
 ### Technical details
 
-Android gives third-party apps no RCS API. Samsung Messages exposes an RCS photo through the MMS store with no text part and a non-standard message box (KDE Connect reports it as type 0), so the caption never reaches KDE Connect.
+Android gives third-party apps no RCS API. The phone's messaging app exposes an RCS photo through the MMS store with no text part, so the caption never reaches KDE Connect.
+
 This affects every KDE Connect desktop client, not only Connected. Related upstream: [KDE bug 464654](https://bugs.kde.org/show_bug.cgi?id=464654) (sending RCS).
 
-Captured 2026-10-14 against kdeconnect 23.08.5 with Samsung Messages on a Galaxy S24+.
+Captured 2026-10-14 against kdeconnect 23.08.5 with Google Messages on a Galaxy S24+.
 
 ## Popup Does Not Reopen After a Double-Click in the File Chooser
 
