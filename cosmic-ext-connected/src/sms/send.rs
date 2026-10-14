@@ -125,7 +125,7 @@ pub async fn send_new_sms_async(
         .send_without_conversation(addresses, &message, attachments)
         .await
     {
-        Ok(()) => Message::NewMessageSendResult(Ok("Message sent".to_string())),
+        Ok(()) => Message::NewMessageSendResult(Ok(fl!("sms-sent"))),
         Err(e) => Message::NewMessageSendResult(Err(format!("Send failed: {}", e))),
     }
 }

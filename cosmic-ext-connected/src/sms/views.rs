@@ -331,7 +331,6 @@ pub fn view_conversation_list(params: ConversationListParams<'_>) -> Element<'_,
             column![
                 widget::icon::from_name("mail-message-new-symbolic").size(48),
                 text::heading(fl!("no-conversations")),
-                text::caption(fl!("start-new-message")),
             ]
             .spacing(sp.space_xs)
             .align_x(Alignment::Center),

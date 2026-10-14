@@ -619,16 +619,14 @@ impl SmsConversationStore {
                 // to catch new conversations while the SMS view is open.
                 self.conversation_sync_active = false;
 
-                // Only dismiss loading spinner if we have data to show.
-                // If conversations is empty, keep the spinner — the subscription
-                // continues listening and may receive conversations later.
-                // This prevents a false "no conversations" message on cold start
-                // when the phone is slow to respond.
+                // Dismiss the spinner even on an empty list. A device with no threads
+                // sends zero packets and no end marker, so an empty result and a
+                // slow phone are indistinguishable on the wire. The subscription
+                // keeps listening, and a late phone's conversations replace the empty list
                 if matches!(
                     self.sms_loading_state,
                     SmsLoadingState::LoadingConversations(_)
-                ) && !self.conversations.is_empty()
-                {
+                ) {
                     self.sms_loading_state = SmsLoadingState::Idle;
                 }
                 (cosmic::app::Task::none(), SmsReply::NoOp)
