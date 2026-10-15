@@ -79,6 +79,8 @@ pub enum Message {
     OpenShareTextView(String, String), // device_id, device_type
     /// Return from ShareText view to device page
     BackFromShareText,
+    /// The daemon is no longer available
+    DaemonGone,
 
     // Ping actions
     /// Send a ping to a device
@@ -921,6 +923,16 @@ impl Application for ConnectApplet {
                 // stream alive. Deliberately no UI: a persistent daemon problem
                 // surfaces through DeviceFetchFailed, which is about device state.
                 tracing::debug!("Subscription retrying: {}", what);
+            }
+            Message::DaemonGone => {
+                // The bus told us the daemon is gone; the next successful fetch then
+                // reads as unreachable -> reachable and DevicesUpdated regenerates the
+                // SMS subscriptions. No fetch here: a call would re-activate the
+                // daemon, which loops if it crashes on start and overrides a stop
+                // the user meant. The next user action activates it.
+                for d in &mut self.devices {
+                    d.is_reachable = false;
+                }
             }
             Message::DeviceFetchFailed(why) => {
                 // We could not reach the daemon, so no device's reachability is

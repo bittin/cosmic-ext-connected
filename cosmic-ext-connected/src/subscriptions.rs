@@ -132,6 +132,20 @@ pub fn dbus_signal_subscription() -> impl futures_util::Stream<Item = Message> {
                     }
                 }
 
+                // Owner loss of the daemon's name. Emitted by the bus itself, so the
+                // sender rule above does not cover it.
+                if let Ok(rule) = zbus::MatchRule::builder()
+                    .msg_type(zbus::message::Type::Signal)
+                    .interface("org.freedesktop.DBus")
+                    .and_then(|b| b.member("NameOwnerChanged"))
+                    .and_then(|b| b.arg(0, "org.kde.kdeconnect"))
+                    .map(|b| b.build())
+                {
+                    if let Err(e) = dbus_proxy.add_match_rule(rule).await {
+                        tracing::warn!("Failed to add NameOwnerChanged match rule: {}", e);
+                    }
+                }
+
                 // Subscribe to share plugin signals for file notifications
                 if let Ok(rule) = zbus::MatchRule::builder()
                     .msg_type(zbus::message::Type::Signal)
@@ -251,6 +265,30 @@ pub fn dbus_signal_subscription() -> impl futures_util::Stream<Item = Message> {
                                             }
                                         }
                                     }
+                                    // The daemon exited: the bus's owner-loss signal for its name.
+                                    if iface_str == "org.freedesktop.DBus"
+                                        && member_str == "NameOwnerChanged"
+                                    {
+                                        if let Ok((name, old, new)) =
+                                            msg.body().deserialize::<(String, String, String)>()
+                                        {
+                                            if name == "org.kde.kdeconnect" && new.is_empty() {
+                                                tracing::info!(
+                                                    "kdeconnectd lost its name (was {})",
+                                                    old
+                                                );
+                                                return Some((
+                                                    Message::DaemonGone,
+                                                    DbusSubscriptionState::Listening {
+                                                        conn,
+                                                        stream,
+                                                    },
+                                                ));
+                                            }
+                                        }
+                                        continue;
+                                    }
+
                                     // Only trigger refresh on specific device-related signals.
                                     // Signal names match upstream KDE Connect
                                     // (see core/daemon.h and core/device.h). The previous
