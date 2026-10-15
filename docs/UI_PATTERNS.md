@@ -25,6 +25,12 @@ pub enum ViewMode {
 submenu, a non-mobile peer gets the single compose view. The predicate is
 `DeviceClass::is_mobile` (`device/class.rs`).
 
+## Status Messages
+
+Write `status_message` only through `set_status`, `set_transient_status` (clears after 3s) or
+`set_view` (clears on navigation). Each bumps a generation, so a stale timer cannot clear a newer
+status, and a device refresh never touches it.
+
 ## Async Tasks
 
 Use `Task::perform` with `cosmic::Action::App` wrapper:

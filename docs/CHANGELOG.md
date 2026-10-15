@@ -8,6 +8,7 @@
 - The Flatpak sandbox no longer has unrestricted access to the session bus. It now talks only to KDE Connect and the notification service.
 - The files Connected uses to stop two panels raising the same notification now live in your session's private runtime directory instead of `/tmp`, so no other user on the machine can read or interfere with them.
 - Opening the SMS view asks the phone for the conversation list once instead of twice, halving the phone traffic each time KDE Connect restarts.
+- The device list no longer refreshes on other applications' D-Bus property changes, only on KDE Connect's own signals.
 
 ### Fixed
 - The SMS reply box is no longer pushed off the bottom of short or heavily scaled screens.
@@ -15,6 +16,7 @@
 - Opening a conversation no longer waits out an 8 s window after KDE Connect fetched the messages from the phone; the load completes as soon as the page is in, so the syncing indicator clears and older messages can be loaded right away.
 - The "No devices" card no longer shows an unlabelled settings icon. Settings stay reachable from the header once a device is listed.
 - Opening SMS on a device that has no conversations, such as a tablet without phone service, now shows the empty state instead of fetching forever.
+- Status messages such as "Message sent" or a pairing result no longer vanish within seconds because the device list refreshed; they stay until they time out or you move to another page.
 
 ## [0.8.0] - 2026-08-30
 Connected's popup now blurs like the rest of COSMIC, and it starts KDE Connect for you instead of failing with a cryptic error, so first run works the same on Fedora, Arch and Debian as it does on Pop!_OS.

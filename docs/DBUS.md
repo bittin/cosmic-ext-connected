@@ -174,7 +174,7 @@ Always pass `start = 0` and vary only `end`. See `docs/SMS.md` → "Older Messag
 
 ### Match rules are not uniformly scoped
 
-- `subscriptions.rs` registers a rule filtered **only on the daemon's sender name**, with no interface or member filter, then accepts or drops each signal in an `is_relevant` match. A new daemon-emitted signal needs **no new match rule** here - only a new branch. 
+- `subscriptions.rs` registers a rule filtered **only on the daemon's sender name**, with no interface or member filter, then accepts or drops each signal in an `is_relevant` match. A new daemon-emitted signal needs **no new match rule** here - only a new branch. Only the daemon's own `PropertiesChanged` reach `is_relevant`; the phone's media players sit on separate connections and are not matched.
 - `sms/conversation_subscription.rs` registers **member-scoped** rules, one per signal (`conversationCreated`, `conversationUpdated`, `conversationLoaded`). A new signal there **does** need its own rule, or it never arrives.
 
 Do not carry the conclusion from one file to the other.
