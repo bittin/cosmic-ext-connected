@@ -14,6 +14,7 @@
 - The conversation list is no longer updated optimistically, and messages that never reached the phone no longer pin to the conversation list.
 - Opening a conversation no longer waits out an 8 s window after KDE Connect fetched the messages from the phone; the load completes as soon as the page is in, so the syncing indicator clears and older messages can be loaded right away.
 - The "No devices" card no longer shows an unlabelled settings icon. Settings stay reachable from the header once a device is listed.
+- Opening SMS on a device that has no conversations, such as a tablet without phone service, now shows the empty state instead of fetching forever.
 
 ## [0.8.0] - 2026-08-30
 Connected's popup now blurs like the rest of COSMIC, and it starts KDE Connect for you instead of failing with a cryptic error, so first run works the same on Fedora, Arch and Debian as it does on Pop!_OS.

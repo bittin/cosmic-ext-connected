@@ -68,6 +68,7 @@ Important details:
 - Warm starts use cached rows immediately and a shorter bootstrap window.
 - Cold starts use a longer wait and one bounded retry.
 - The conversation-list subscription reads the daemon cache exactly once, before its bootstrap requests fire. Everything after that arrives as signals, and there is no follow-up poll — a missed signal is not backfilled by a later cache read.
+- An empty list after the cold-start deadline and retry shows the empty state. A device that advertises SMS but hold no threads (a tablet without service) answers the bootstrap with nothing at all, so this is the only way it can complete; the subscription keeps listening and a late phone's conversations replace it.
 
 ### Message Thread Loading
 
