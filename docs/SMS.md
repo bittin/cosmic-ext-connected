@@ -170,6 +170,10 @@ The message bump also resets the thread's load bookkeeping (`messages`, `known_m
 becomes the union of pre- and post-restart data — so a recovered thread is a fresh first page, not
 a merge.
 
+A daemon exit is also detected directly: `NameOwnerChanged` for `org.kde.kdeconnect` with an empty
+new owner marks every device unreachable at once, so the edge is observed even when the daemon is
+back inside one refresh window. Nothing re-activates the daemon on loss; the next call does.
+
 ## Sending Behavior
 
 ### Replies

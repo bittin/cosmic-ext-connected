@@ -17,6 +17,7 @@
 - The "No devices" card no longer shows an unlabelled settings icon. Settings stay reachable from the header once a device is listed.
 - Opening SMS on a device that has no conversations, such as a tablet without phone service, now shows the empty state instead of fetching forever.
 - Status messages such as "Message sent" or a pairing result no longer vanish within seconds because the device list refreshed; they stay until they time out or you move to another page.
+- When KDE Connect stops, devices show as offline right away instead of staying "connected" until the next click.
 
 ## [0.8.0] - 2026-08-30
 Connected's popup now blurs like the rest of COSMIC, and it starts KDE Connect for you instead of failing with a cryptic error, so first run works the same on Fedora, Arch and Debian as it does on Pop!_OS.
