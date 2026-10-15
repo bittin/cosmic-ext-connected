@@ -132,19 +132,6 @@ pub fn dbus_signal_subscription() -> impl futures_util::Stream<Item = Message> {
                     }
                 }
 
-                // Also subscribe to property changes (for battery, pairing state, etc.)
-                if let Ok(rule) = zbus::MatchRule::builder()
-                    .msg_type(zbus::message::Type::Signal)
-                    .interface("org.freedesktop.DBus.Properties")
-                    .map(|b| b.build())
-                {
-                    if let Err(e) = dbus_proxy.add_match_rule(rule).await {
-                        tracing::warn!("Failed to add properties match rule: {}", e);
-                    } else {
-                        tracing::debug!("Added match rule for property change signals");
-                    }
-                }
-
                 // Subscribe to share plugin signals for file notifications
                 if let Ok(rule) = zbus::MatchRule::builder()
                     .msg_type(zbus::message::Type::Signal)
@@ -288,7 +275,8 @@ pub fn dbus_signal_subscription() -> impl futures_util::Stream<Item = Message> {
                                         // Battery and notification plugin signals
                                         "org.kde.kdeconnect.device.battery" => true,
                                         "org.kde.kdeconnect.device.notifications" => true,
-                                        // Property changes for any kdeconnect interface
+                                        // PropertiesChanged from the daemon only: the sender rule
+                                        // above is the only route in.
                                         "org.freedesktop.DBus.Properties" => {
                                             member_str == "PropertiesChanged"
                                         }

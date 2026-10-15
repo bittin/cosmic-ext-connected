@@ -1285,14 +1285,12 @@ impl SmsConversationStore {
                     // Already cached — open immediately
                     let path_str = cached_path.to_string_lossy().to_string();
                     return (
-                        cosmic::app::Task::perform(
-                            async move {
-                                let _ = tokio::process::Command::new("xdg-open")
-                                    .arg(&path_str)
-                                    .spawn();
-                            },
-                            |_| cosmic::Action::App(Message::ClearStatusMessage),
-                        ),
+                        cosmic::Task::future(async move {
+                            let _ = tokio::process::Command::new("xdg-open")
+                                .arg(&path_str)
+                                .spawn();
+                        })
+                        .discard(),
                         SmsReply::NoOp,
                     );
                 }
@@ -1316,14 +1314,12 @@ impl SmsConversationStore {
                 (cosmic::app::Task::none(), SmsReply::NoOp)
             }
             Message::AttachmentReady(file_path) => (
-                cosmic::app::Task::perform(
-                    async move {
-                        let _ = tokio::process::Command::new("xdg-open")
-                            .arg(&file_path)
-                            .spawn();
-                    },
-                    |_| cosmic::Action::App(Message::ClearStatusMessage),
-                ),
+                cosmic::Task::future(async move {
+                    let _ = tokio::process::Command::new("xdg-open")
+                        .arg(&file_path)
+                        .spawn();
+                })
+                .discard(),
                 SmsReply::SetStatus(None),
             ),
             Message::AttachmentError(err) => {

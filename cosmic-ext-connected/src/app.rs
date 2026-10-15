@@ -129,7 +129,7 @@ pub enum Message {
     /// never reach `self.error`, which pre-empts the entire popup view.
     SubscriptionRetrying(String),
     /// Clear the transient status message after a delay
-    ClearStatusMessage,
+    ClearStatusMessage(u64),
     /// D-Bus signal received indicating device state changed
     DbusSignalReceived,
     /// Periodic tick to flush a pending refresh if the debounce window has cleared
@@ -497,8 +497,8 @@ pub struct ConnectApplet {
     /// Last pairing failure, as (device_id, daemon error string). Owned by the
     /// pairing flow: set when daemon reports a failure, cleared only when the
     /// user starts another attempt or leaves the page. Deliberately NOT
-    /// status_message and NOT DeviceInfo - pairingFailed is followed ~20µs later
-    /// by pairStateChanged, whose refresh clears status_message and
+    /// status_message, which any newer status replaces, and NOT DeviceInfo -
+    /// pairingFailed is followed ~20µs later by pairStateChanged, whose refresh
     /// replaces self.devices, so either home would erase the reason.
     pairing_error: Option<(String, String)>,
     /// Device whose pairing we cancelled ourselves. The daemon reports a
@@ -507,6 +507,7 @@ pub struct ConnectApplet {
     pairing_cancel_expected: Option<String>,
     /// Status message for user feedback (e.g., "Ping sent", "Pairing failed")
     status_message: Option<String>,
+    status_generation: u64,
     /// D-Bus connection (shared for async operations)
     dbus_connection: Option<Arc<Mutex<Connection>>>,
     /// Whether we're currently fetching devices
@@ -607,15 +608,31 @@ impl ConnectApplet {
         (height - panel - SCREEN_MARGIN).clamp(1.0, MAX_HEIGHT)
     }
 
-    /// Set a transient status message that auto-clears after 3 seconds.
-    fn set_transient_status(&mut self, msg: String) -> cosmic::app::Task<Message> {
+    /// The single writer of `status_message`. Bumping the generation orphans any
+    /// timer armed for an earlier status, so a 3s clear cannot erase a newer one.
+    fn set_status(&mut self, msg: String) {
+        self.status_generation = self.status_generation.wrapping_add(1);
         self.status_message = Some(msg);
+    }
+
+    /// `set_status` plus a 3s clear that applies only if nothing replaced it.
+    fn set_transient_status(&mut self, msg: String) -> cosmic::app::Task<Message> {
+        self.set_status(msg);
+        let gen = self.status_generation;
         cosmic::app::Task::perform(
-            async {
+            async move {
                 tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                gen
             },
-            |_| cosmic::Action::App(Message::ClearStatusMessage),
+            |gen| cosmic::Action::App(Message::ClearStatusMessage(gen)),
         )
+    }
+
+    /// Change view and drop the status that belonged to the old one.
+    fn set_view(&mut self, mode: ViewMode) {
+        self.view_mode = mode;
+        self.status_generation = self.status_generation.wrapping_add(1);
+        self.status_message = None;
     }
 
     /// Apply an `SmsReply` returned by `SmsConversationStore::update()`.
@@ -623,13 +640,17 @@ impl ConnectApplet {
     fn handle_sms_reply(&mut self, reply: crate::sms::SmsReply) -> cosmic::app::Task<Message> {
         match reply {
             crate::sms::SmsReply::Status(msg) => self.set_transient_status(msg),
-            crate::sms::SmsReply::SetStatus(opt) => {
-                self.status_message = opt;
+            crate::sms::SmsReply::SetStatus(Some(msg)) => {
+                self.set_status(msg);
                 cosmic::app::Task::none()
             }
             crate::sms::SmsReply::NewMessageSent(msg) => {
-                self.status_message = Some(msg);
-                self.view_mode = ViewMode::ConversationList;
+                self.set_view(ViewMode::ConversationList);
+                self.set_transient_status(msg)
+            }
+            crate::sms::SmsReply::SetStatus(None) => {
+                // An explicit clear by the store; no new status, so the generation stays.
+                self.status_message = None;
                 cosmic::app::Task::none()
             }
             crate::sms::SmsReply::NoOp => cosmic::app::Task::none(),
@@ -698,6 +719,7 @@ impl Application for ConnectApplet {
             pairing_error: None,
             pairing_cancel_expected: None,
             status_message: None,
+            status_generation: 0,
             dbus_connection: None,
             loading: true,
             view_mode: ViewMode::DeviceList,
@@ -765,7 +787,6 @@ impl Application for ConnectApplet {
                 if let Some(conn) = &self.dbus_connection {
                     tracing::debug!("Forcing network re-scan");
                     self.loading = true;
-                    self.status_message = None;
                     return cosmic::app::Task::perform(
                         force_network_change_async(conn.clone()),
                         cosmic::Action::App,
@@ -789,7 +810,6 @@ impl Application for ConnectApplet {
                 if let Some(conn) = &self.dbus_connection {
                     tracing::debug!("Refreshing device list");
                     self.loading = true;
-                    self.status_message = None;
                     return cosmic::app::Task::perform(
                         fetch_devices_async(conn.clone()),
                         cosmic::Action::App,
@@ -880,7 +900,6 @@ impl Application for ConnectApplet {
                 self.devices = devices;
                 self.error = None;
                 self.loading = false;
-                self.status_message = None; // Clear status after refresh
 
                 // If any signals were dropped while this fetch was in flight,
                 // kick one more fetch to pick up settled state. See the
@@ -922,14 +941,16 @@ impl Application for ConnectApplet {
                 self.error = Some(ErrorState::Daemon(why));
                 self.loading = false;
             }
-            Message::ClearStatusMessage => {
-                self.status_message = None;
+            Message::ClearStatusMessage(gen) => {
+                if gen == self.status_generation {
+                    self.status_message = None;
+                }
             }
 
             // Navigation
             Message::SelectDevice(device_id) => {
                 self.selected_device = Some(device_id.clone());
-                self.view_mode = ViewMode::DevicePage;
+                self.set_view(ViewMode::DevicePage);
                 self.share_text_input.clear();
 
                 // Prefetch SMS conversations so they're ready when user opens SMS
@@ -942,7 +963,7 @@ impl Application for ConnectApplet {
             }
             Message::BackToList => {
                 self.selected_device = None;
-                self.view_mode = ViewMode::DeviceList;
+                self.set_view(ViewMode::DeviceList);
                 self.share_text_input.clear();
                 self.sms.sms_prefetch = None;
                 self.pairing_error = None;
@@ -950,29 +971,29 @@ impl Application for ConnectApplet {
             Message::OpenSendToView(device_id, device_type) => {
                 self.sendto_device_id = Some(device_id);
                 self.sendto_device_type = Some(device_type);
-                self.view_mode = ViewMode::SendTo;
+                self.set_view(ViewMode::SendTo);
             }
             Message::BackFromSendTo => {
-                self.view_mode = ViewMode::DevicePage;
+                self.set_view(ViewMode::DevicePage);
                 self.sendto_device_id = None;
                 self.sendto_device_type = None;
             }
             Message::OpenShareTextView(device_id, device_type) => {
                 self.sendto_device_id = Some(device_id);
                 self.sendto_device_type = Some(device_type);
-                self.view_mode = ViewMode::ShareText;
+                self.set_view(ViewMode::ShareText);
                 return widget::text_input::focus(widget::Id::new("share-text-input"));
             }
             Message::BackFromShareText => {
-                self.view_mode = ViewMode::DevicePage;
+                self.set_view(ViewMode::DevicePage);
                 self.sendto_device_id = None;
                 self.sendto_device_type = None;
             }
 
             // Ping
             Message::SendPing(device_id) => {
-                if let Some(conn) = &self.dbus_connection {
-                    self.status_message = Some("Sending ping...".to_string());
+                if let Some(conn) = self.dbus_connection.clone() {
+                    self.set_status("Sending ping...".to_string());
                     return cosmic::app::Task::perform(
                         send_ping_async(conn.clone(), device_id),
                         |result| cosmic::Action::App(Message::PingComplete(result)),
@@ -992,8 +1013,8 @@ impl Application for ConnectApplet {
 
             // Find My Phone
             Message::FindMyPhone(device_id) => {
-                if let Some(conn) = &self.dbus_connection {
-                    self.status_message = Some(fl!("ringing-phone"));
+                if let Some(conn) = self.dbus_connection.clone() {
+                    self.set_status(fl!("ringing-phone"));
                     return cosmic::app::Task::perform(
                         find_my_phone_async(conn.clone(), device_id),
                         |result| cosmic::Action::App(Message::FindMyPhoneComplete(result)),
@@ -1056,11 +1077,12 @@ impl Application for ConnectApplet {
                 });
             }
             Message::FileSelected(path) => {
-                if let (Some(conn), Some(device_id)) =
-                    (&self.dbus_connection, self.pending_share_device.take())
-                {
+                if let (Some(conn), Some(device_id)) = (
+                    self.dbus_connection.clone(),
+                    self.pending_share_device.take(),
+                ) {
                     if let Some(path) = path {
-                        self.status_message = Some("Sharing file...".to_string());
+                        self.set_status("Sharing file...".to_string());
                         return cosmic::app::Task::perform(
                             share_file_async(conn.clone(), device_id, path),
                             |result| cosmic::Action::App(Message::ShareComplete(result)),
@@ -1073,9 +1095,9 @@ impl Application for ConnectApplet {
             }
             Message::ShareText(device_id, text) => {
                 if !text.is_empty() {
-                    if let Some(conn) = &self.dbus_connection {
+                    if let Some(conn) = self.dbus_connection.clone() {
                         self.share_text_input.clear();
-                        self.status_message = Some("Sharing text...".to_string());
+                        self.set_status("Sharing text...".to_string());
                         return cosmic::app::Task::perform(
                             share_text_async(conn.clone(), device_id, text),
                             |result| cosmic::Action::App(Message::ShareComplete(result)),
@@ -1105,10 +1127,10 @@ impl Application for ConnectApplet {
 
             // Pairing
             Message::RequestPair(device_id) => {
-                if let Some(conn) = &self.dbus_connection {
+                if let Some(conn) = self.dbus_connection.clone() {
                     tracing::info!("Requesting pairing with device: {}", device_id);
                     self.pairing_error = None;
-                    self.status_message = Some("Pairing request sent...".to_string());
+                    self.set_status("Pairing request sent...".to_string());
                     return cosmic::app::Task::perform(
                         request_pair_async(conn.clone(), device_id),
                         cosmic::Action::App,
@@ -1116,9 +1138,8 @@ impl Application for ConnectApplet {
                 }
             }
             Message::Unpair(device_id) => {
-                if let Some(conn) = &self.dbus_connection {
+                if let Some(conn) = self.dbus_connection.clone() {
                     tracing::info!("Unpairing from device: {}", device_id);
-                    self.status_message = Some("Unpairing...".to_string());
 
                     // An offline device would re-render the "must be connected" page
                     // after unpair - pop back to the list so the status bar carries
@@ -1131,8 +1152,9 @@ impl Application for ConnectApplet {
                         .unwrap_or(false);
                     if !reachable {
                         self.selected_device = None;
-                        self.view_mode = ViewMode::DeviceList;
+                        self.set_view(ViewMode::DeviceList);
                     }
+                    self.set_status("Unpairing...".to_string());
 
                     return cosmic::app::Task::perform(
                         unpair_async(conn.clone(), device_id),
@@ -1141,10 +1163,10 @@ impl Application for ConnectApplet {
                 }
             }
             Message::AcceptPairing(device_id) => {
-                if let Some(conn) = &self.dbus_connection {
+                if let Some(conn) = self.dbus_connection.clone() {
                     tracing::info!("Accepting pairing from device: {}", device_id);
                     self.pairing_error = None;
-                    self.status_message = Some("Accepting pairing...".to_string());
+                    self.set_status("Accepting pairing...".to_string());
                     return cosmic::app::Task::perform(
                         accept_pairing_async(conn.clone(), device_id),
                         cosmic::Action::App,
@@ -1152,11 +1174,11 @@ impl Application for ConnectApplet {
                 }
             }
             Message::RejectPairing(device_id) => {
-                if let Some(conn) = &self.dbus_connection {
+                if let Some(conn) = self.dbus_connection.clone() {
                     tracing::info!("Rejecting/cancelling pairing for device: {}", device_id);
                     self.pairing_error = None;
                     self.pairing_cancel_expected = Some(device_id.clone());
-                    self.status_message = Some("Rejecting pairing...".to_string());
+                    self.set_status("Rejecting pairing...".to_string());
                     return cosmic::app::Task::perform(
                         reject_pairing_async(conn.clone(), device_id),
                         cosmic::Action::App,
@@ -1167,11 +1189,11 @@ impl Application for ConnectApplet {
                 match &result {
                     Ok(msg) => {
                         tracing::info!("Pairing result: {}", msg);
-                        self.status_message = Some(msg.clone());
+                        self.set_status(msg.clone());
                     }
                     Err(err) => {
                         tracing::error!("Pairing error: {}", err);
-                        self.status_message = Some(format!("Error: {}", err));
+                        self.set_status(format!("Error: {}", err));
                     }
                 }
                 // Refresh devices to update pairing state
@@ -1262,7 +1284,7 @@ impl Application for ConnectApplet {
                     Ok(msg) => tracing::info!("Dismiss result: {}", msg),
                     Err(err) => {
                         tracing::error!("Dismiss error: {}", err);
-                        self.status_message = Some(format!("Failed to dismiss: {}", err));
+                        self.set_status(format!("Failed to dismiss: {}", err));
                     }
                 }
                 // Refresh devices to update notification list
@@ -1276,9 +1298,9 @@ impl Application for ConnectApplet {
 
             // Clipboard
             Message::SendClipboard(device_id) => {
-                if let Some(conn) = &self.dbus_connection {
+                if let Some(conn) = self.dbus_connection.clone() {
                     tracing::info!("Sending clipboard to device: {}", device_id);
-                    self.status_message = Some("Sending clipboard...".to_string());
+                    self.set_status("Sending clipboard...".to_string());
                     return cosmic::app::Task::perform(
                         send_clipboard_async(conn.clone(), device_id),
                         cosmic::Action::App,
@@ -1299,16 +1321,16 @@ impl Application for ConnectApplet {
             // Settings
             Message::ToggleSettings => {
                 if self.view_mode == ViewMode::Settings {
-                    self.view_mode = ViewMode::DeviceList;
+                    self.set_view(ViewMode::DeviceList);
                 } else {
-                    self.view_mode = ViewMode::Settings;
+                    self.set_view(ViewMode::Settings);
                 }
             }
             Message::OpenAbout => {
-                self.view_mode = ViewMode::About;
+                self.set_view(ViewMode::About);
             }
             Message::BackFromAbout => {
-                self.view_mode = ViewMode::DeviceList;
+                self.set_view(ViewMode::DeviceList);
             }
             Message::OpenUrl(url) => {
                 return cosmic::app::Task::perform(
@@ -1380,7 +1402,7 @@ impl Application for ConnectApplet {
                     let same_device = self.sms.sms_device_id.as_ref() == Some(&device_id);
                     let has_cache = same_device && !self.sms.conversations.is_empty();
 
-                    self.view_mode = ViewMode::ConversationList;
+                    self.set_view(ViewMode::ConversationList);
                     self.sms.sms_device_id = Some(device_id.clone());
                     self.sms.sms_device_name = device_name;
 
@@ -1469,7 +1491,7 @@ impl Application for ConnectApplet {
                 }
             }
             Message::CloseSmsView => {
-                self.view_mode = ViewMode::DevicePage;
+                self.set_view(ViewMode::DevicePage);
                 // Keep sms_device_id, sms_device_name, conversations, contacts
                 // for when user returns to SMS view
                 self.sms.messages.clear();
@@ -1522,7 +1544,7 @@ impl Application for ConnectApplet {
                     self.sms.current_thread_id = Some(thread_id);
                     self.sms.current_thread_addresses = addresses;
                     self.sms.current_merged_thread_ids = merged_thread_ids;
-                    self.view_mode = ViewMode::MessageThread;
+                    self.set_view(ViewMode::MessageThread);
 
                     // Reset pagination state
                     self.sms.messages_has_more = true;
@@ -1557,7 +1579,7 @@ impl Application for ConnectApplet {
                 }
             }
             Message::CloseConversation => {
-                self.view_mode = ViewMode::ConversationList;
+                self.set_view(ViewMode::ConversationList);
                 self.sms.current_thread_id = None;
                 self.sms.current_thread_addresses = None;
                 self.sms.current_merged_thread_ids.clear();
@@ -1616,7 +1638,7 @@ impl Application for ConnectApplet {
 
             // New message
             Message::OpenNewMessage => {
-                self.view_mode = ViewMode::NewMessage;
+                self.set_view(ViewMode::NewMessage);
                 self.sms.new_message_recipients.clear();
                 self.sms.new_message_recipient_input.clear();
                 self.sms.new_message_body = widget::text_editor::Content::new();
@@ -1626,7 +1648,7 @@ impl Application for ConnectApplet {
                 return widget::text_input::focus(widget::Id::new("new-message-recipient"));
             }
             Message::CloseNewMessage => {
-                self.view_mode = ViewMode::ConversationList;
+                self.set_view(ViewMode::ConversationList);
                 self.sms.new_message_recipients.clear();
                 self.sms.new_message_recipient_input.clear();
                 self.sms.new_message_body = widget::text_editor::Content::new();
@@ -1650,7 +1672,7 @@ impl Application for ConnectApplet {
                 self.media_info = None;
                 self.media_loading = true;
                 self.media_selected_player = None;
-                self.view_mode = ViewMode::MediaControls;
+                self.set_view(ViewMode::MediaControls);
 
                 if let Some(conn) = &self.dbus_connection {
                     return cosmic::app::Task::perform(
@@ -1660,7 +1682,7 @@ impl Application for ConnectApplet {
                 }
             }
             Message::CloseMediaView => {
-                self.view_mode = ViewMode::DevicePage;
+                self.set_view(ViewMode::DevicePage);
                 self.media_device_id = None;
                 self.media_device_name = None;
                 self.media_info = None;
