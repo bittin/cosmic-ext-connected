@@ -22,7 +22,7 @@ use kdeconnect_dbus::contacts::ContactLookup;
 use kdeconnect_dbus::plugins::{
     is_address_valid, ConversationSummary, MessageType, SmsMessage, OPTIMISTIC_MESSAGE_UID,
 };
-use kdeconnect_dbus::{normalize_phone_number, phone_suffix};
+use kdeconnect_dbus::{dedupe_addresses, normalize_phone_number, phone_suffix};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -336,28 +336,32 @@ impl SmsConversationStore {
             .find(|lc| lc.merged_thread_ids.contains(&thread_id))
     }
 
-    /// Pick the threadId to pass to `replyToConversation` for the displayed
-    /// thread, per the Phase 1B-validated split-by-case rule.
-    ///
-    /// - **Symmetric merge** (canonical address-sets equal across the merged
-    ///   group — the only case the primary-equality heuristic produces) →
-    ///   redirect to `primary_thread_id` (most-recently-active sibling
-    ///   within `subID`). Matches AOSP's outgoing-reply canonicalization
-    ///   so the echo lands where we expect, and bypasses AOSP's per-bucket
-    ///   processing that produced recipient-side duplicate delivery on
-    ///   Pair 4 (1055↔58, captured 2026-05-02).
-    /// - **Asymmetric / subset clause** (untested across 6 captured Phase 1
-    ///   pairs; reintroduced if/when the subset clause returns in v0.6.0+)
-    ///   → preserve the displayed thread ID. Conservative until field data
-    ///   confirms the redirect is address-safe under subset shapes.
-    /// - **Non-merged or unknown** → return the displayed thread ID.
-    ///
-    /// See `docs/SMS.md` "Reply target rule" for the full table.
-    pub(crate) fn reply_target(&self, displayed_thread_id: i64) -> i64 {
-        self.logical_for(displayed_thread_id)
-            .filter(|lc| lc.merged_thread_ids.len() > 1)
-            .map(|lc| lc.primary_thread_id)
-            .unwrap_or(displayed_thread_id)
+    /// Recipients and SIM for a reply: the newest loaded message that carries
+    /// addresses, else the conversation's own address list. Newest across the whole
+    /// merged set is safe because a symmetric merge has equal canonical addresses
+    /// and equal `sub_id` by construction. `None` means nothing to send to.
+    pub(crate) fn reply_recipients(&self, thread_id: i64) -> Option<(Vec<String>, i64)> {
+        let newest_addressed = self
+            .messages
+            .iter()
+            .filter(|m| m.uid != OPTIMISTIC_MESSAGE_UID)
+            .filter_map(|m| {
+                let addrs = dedupe_addresses(&m.addresses);
+                (!addrs.is_empty()).then_some((m.date, addrs, m.sub_id))
+            })
+            .max_by_key(|(date, _, _)| *date);
+        if let Some((_, addrs, sub_id)) = newest_addressed {
+            return Some((addrs, sub_id));
+        }
+        let fallback = dedupe_addresses(self.current_thread_addresses.as_deref().unwrap_or(&[]));
+        if fallback.is_empty() {
+            return None;
+        }
+        let sub_id = self
+            .logical_for(thread_id)
+            .map(|lc| lc.subscription_id)
+            .unwrap_or(-1);
+        Some((fallback, sub_id))
     }
 
     /// Find the latest conversation timestamp for a phone number.
@@ -1147,34 +1151,28 @@ impl SmsConversationStore {
                         .as_ref()
                         .is_some_and(|a| a.too_large(&message_text));
                     if has_content && !too_large && !self.sms_sending {
+                        let Some((addresses, sub_id)) = self.reply_recipients(thread_id) else {
+                            tracing::warn!("No recipient for thread {}; nothing sent", thread_id);
+                            return (
+                                cosmic::app::Task::none(),
+                                SmsReply::Status(fl!("reply-no-recipient")),
+                            );
+                        };
                         self.sms_sending = true;
                         self.sms_sending_body = Some(message_text.clone());
-                        // Apply the split-by-case rule: for symmetric merges
-                        // (every merged set under the primary-equality
-                        // heuristic) redirect to the primary thread. See
-                        // `reply_target` for the rationale and Phase 1B citation.
-                        let reply_target = self.reply_target(thread_id);
-                        debug_assert!(
-                            self.logical_for(thread_id)
-                                .map(|lc| lc.merged_thread_ids.contains(&reply_target))
-                                .unwrap_or(reply_target == thread_id),
-                            "reply_target {} not in merged_thread_ids of logical for \
-                               displayed_thread_id {}",
-                            reply_target,
-                            thread_id
-                        );
                         tracing::info!(
-                            "Dispatching send_sms_async via replyToConversation \
-                               displayed_thread_id={} reply_target={}",
+                            "Dispatching sendSms for thread {} to {} recipient(s), sub_id {}",
                             thread_id,
-                            reply_target
+                            addresses.len(),
+                            sub_id
                         );
                         return (
                             cosmic::app::Task::perform(
                                 send_sms_async(
                                     conn.clone(),
                                     device_id.clone(),
-                                    reply_target,
+                                    addresses,
+                                    sub_id,
                                     message_text,
                                     self.pending_attachment.as_ref().map(|a| a.path.clone()),
                                 ),
@@ -1716,5 +1714,82 @@ impl SmsConversationStore {
 impl Default for SmsConversationStore {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn addrs(list: &[&str]) -> Vec<String> {
+        list.iter().map(|a| a.to_string()).collect()
+    }
+
+    fn msg(uid: i32, date: i64, addresses: &[&str], sub_id: i64) -> SmsMessage {
+        SmsMessage {
+            body: String::new(),
+            addresses: addrs(addresses),
+            date,
+            message_type: MessageType::Inbox,
+            read: true,
+            thread_id: 1,
+            uid,
+            sub_id,
+            attachments: vec![],
+        }
+    }
+
+    #[test]
+    fn test_reply_recipients_newest_addressed_wins() {
+        let mut store = SmsConversationStore::new();
+        store.messages = vec![
+            msg(1, 100, &["+15551234567"], 2),
+            msg(2, 200, &["+15559876543"], 3),
+            msg(3, 300, &[], 4),
+        ];
+        assert_eq!(
+            store.reply_recipients(1),
+            Some((addrs(&["+15559876543"]), 3))
+        );
+    }
+
+    #[test]
+    fn test_reply_recipients_falls_back_to_conversation_addresses() {
+        let mut store = SmsConversationStore::new();
+        store.current_thread_addresses = Some(addrs(&["+15551234567"]));
+        assert_eq!(
+            store.reply_recipients(1),
+            Some((addrs(&["+15551234567"]), -1))
+        );
+    }
+
+    #[test]
+    fn test_reply_recipients_none_when_nothing_addressed() {
+        let mut store = SmsConversationStore::new();
+        store.messages = vec![msg(1, 100, &[], 2)];
+        assert_eq!(store.reply_recipients(1), None);
+    }
+
+    #[test]
+    fn test_reply_recipients_drops_phantom() {
+        let mut store = SmsConversationStore::new();
+        store.messages = vec![msg(1, 100, &["0001", "+15551234567"], 2)];
+        assert_eq!(
+            store.reply_recipients(1),
+            Some((addrs(&["+15551234567"]), 2))
+        );
+    }
+
+    #[test]
+    fn test_reply_recipients_skips_optimistic() {
+        let mut store = SmsConversationStore::new();
+        store.messages = vec![
+            msg(1, 100, &["+15551234567"], 2),
+            msg(OPTIMISTIC_MESSAGE_UID, 200, &["+15559876543"], 3),
+        ];
+        assert_eq!(
+            store.reply_recipients(1),
+            Some((addrs(&["+15551234567"]), 2))
+        );
     }
 }

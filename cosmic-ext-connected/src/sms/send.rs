@@ -2,7 +2,7 @@
 
 use crate::app::Message;
 use crate::fl;
-use kdeconnect_dbus::plugins::ConversationsProxy;
+use kdeconnect_dbus::plugins::{ConversationsProxy, SmsProxy};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use zbus::zvariant::{Structure, Value};
@@ -18,24 +18,23 @@ fn attachment_value(path: &std::path::Path) -> Result<Value<'static>, String> {
     Ok(Value::from(s.to_owned()))
 }
 
-/// Send an SMS reply to an existing conversation using replyToConversation.
+/// Send a reply to an existing conversation via the SMS plugin's `sendSms`.
 ///
-/// Uses the Conversations D-Bus interface with a thread ID. The daemon resolves the
-/// addresses from the oldest message in its in-memory `m_conversations` cache, for
-/// the thread, which the thread open's Conversations-interface read fills; the SMS plugin
-/// `requestConversation` call primes nothing. This preserves thread context for group messages.
-///
-/// Note: `replyToConversation` silently no-ops if the cache is empty (no D-Bus
-/// error), and `Ok` is not delivery (`docs/DBUS.md`).
+/// `sendSms` is the call both daemon reply paths end in (`SmsPlugin::sendSms`,
+/// identical on 23.08.5 and 26.08.0). The caller chooses the recipients
+/// (`SmsConversationStore::reply_recipients`) because `replyToConversation` resolves
+/// them from the oldest cached message, which can be the wrong recipient set.
+/// `Ok` is not delivery (`docs/DBUS.md`).
 pub async fn send_sms_async(
     conn: Arc<Mutex<Connection>>,
     device_id: String,
-    thread_id: i64,
+    addresses: Vec<String>,
+    sub_id: i64,
     message: String,
     attachment: Option<std::path::PathBuf>,
 ) -> Message {
     let conn = conn.lock().await;
-    let device_path = format!("{}/devices/{}", kdeconnect_dbus::BASE_PATH, device_id);
+    let sms_path = format!("{}/devices/{}/sms", kdeconnect_dbus::BASE_PATH, device_id);
 
     let attachments: Vec<Value<'_>> = match attachment.as_deref().map(attachment_value) {
         Some(Ok(v)) => vec![v],
@@ -43,8 +42,8 @@ pub async fn send_sms_async(
         None => vec![],
     };
 
-    let conversations_proxy = match ConversationsProxy::builder(&conn)
-        .path(device_path.as_str())
+    let sms_proxy = match SmsProxy::builder(&conn)
+        .path(sms_path.as_str())
         .ok()
         .map(|b| b.build())
     {
@@ -59,21 +58,22 @@ pub async fn send_sms_async(
         }
     };
 
-    tracing::debug!(
-        "Sending SMS via replyToConversation for thread_id={}",
-        thread_id
-    );
+    let recipient_count = addresses.len();
+    let addresses: Vec<Value<'_>> = addresses
+        .into_iter()
+        .map(|a| Value::Structure(Structure::from((a,))))
+        .collect();
 
-    match conversations_proxy
-        .reply_to_conversation(thread_id, &message, attachments)
+    match sms_proxy
+        .send_sms(addresses, &message, attachments, sub_id)
         .await
     {
         Ok(()) => {
-            tracing::info!("SMS sent successfully via replyToConversation");
+            tracing::info!("sendSms accepted for {} recipient(s)", recipient_count);
             Message::SmsSendResult(Ok(message))
         }
         Err(e) => {
-            tracing::error!("SMS send failed: {}", e);
+            tracing::error!("sendSms failed: {}", e);
             Message::SmsSendResult(Err(format!("Send failed: {}", e)))
         }
     }

@@ -142,10 +142,11 @@ impl ContactLookup {
     }
 
     /// Build a display name for a group of addresses.
-    /// Resolves each address via `get_name_or_number`, joins the first `limit` with ", ",
-    /// and appends ", ..." if there are more addresses than the limit.
-    /// Deduplicates resolved names to avoid showing the same contact twice.
+    /// Collapses the addresses with `dedupe_addresses`, resolves each via `get_name_or_number`,
+    /// drops repeated names (one contact under two numbers), joins the first `limit` with ", "
+    /// and appends ", ..." if more remain.
     pub fn get_group_display_name(&self, addresses: &[String], limit: usize) -> String {
+        let addresses = dedupe_addresses(addresses);
         let mut seen = std::collections::HashSet::new();
         // Collect all unique names first, then take limit
         let unique_names: Vec<String> = addresses
@@ -215,6 +216,35 @@ pub fn phone_suffix(digits: &str) -> &str {
     } else {
         digits
     }
+}
+
+/// Collapse the phone-reported address list to one entry per recipient.
+///
+/// Key: the last `SUFFIX_MATCH_DIGITS` digits when an address has at least
+/// `MIN_PHONE_DIGITS`, else the trimmed string. Blank entries go. When any address
+/// has a real number, entries without one go too (a `0001` phantom beside a real
+/// number), but a lone short code or alphanumeric sender is kept. First occurrence
+/// wins and keeps the phone's own formatting.
+pub fn dedupe_addresses(addresses: &[String]) -> Vec<String> {
+    let real_key = |a: &str| {
+        let (digits, suffix) = get_phone_keys(a);
+        (digits.len() >= MIN_PHONE_DIGITS).then_some(suffix)
+    };
+    let has_real_number = addresses.iter().any(|a| real_key(a).is_some());
+
+    let mut seen = std::collections::HashSet::new();
+    let mut kept = Vec::new();
+    for address in addresses.iter().map(|a| a.trim()).filter(|a| !a.is_empty()) {
+        let key = match real_key(address) {
+            Some(suffix) => suffix,
+            None if has_real_number => continue,
+            None => address.to_string(),
+        };
+        if seen.insert(key) {
+            kept.push(address.to_string());
+        }
+    }
+    kept
 }
 
 /// Get all normalized forms of a phone number for storage/lookup.
@@ -394,6 +424,58 @@ mod tests {
             "+1-555-123-4567".to_string(),
             "555-123-4567".to_string(), // Same number, different format
         ];
+        assert_eq!(lookup.get_group_display_name(&addrs, 3), "Alice");
+    }
+
+    fn addrs(list: &[&str]) -> Vec<String> {
+        list.iter().map(|a| a.to_string()).collect()
+    }
+
+    #[test]
+    fn test_dedupe_drops_phantom_beside_real_number() {
+        assert_eq!(
+            dedupe_addresses(&addrs(&["0001", "+16509300462"])),
+            addrs(&["+16509300462"])
+        );
+    }
+
+    #[test]
+    fn test_dedupe_first_format_wins() {
+        assert_eq!(
+            dedupe_addresses(&addrs(&["6509300462", "+16509300462"])),
+            addrs(&["6509300462"])
+        );
+    }
+
+    #[test]
+    fn test_dedupe_keeps_lone_short_code() {
+        assert_eq!(dedupe_addresses(&addrs(&["22000"])), addrs(&["22000"]));
+    }
+
+    #[test]
+    fn test_dedupe_keeps_lone_alphanumeric_sender() {
+        assert_eq!(dedupe_addresses(&addrs(&["Amazon"])), addrs(&["Amazon"]));
+    }
+
+    #[test]
+    fn test_dedupe_drops_blank_entries() {
+        assert!(dedupe_addresses(&addrs(&["", " "])).is_empty());
+    }
+
+    #[test]
+    fn test_group_display_name_drops_phantom() {
+        let lookup = lookup_with_contacts();
+        let addrs = addrs(&["0001", "+1-555-123-4567"]);
+        assert_eq!(lookup.get_group_display_name(&addrs, 3), "Alice");
+    }
+
+    #[test]
+    fn test_group_display_name_same_contact_two_numbers() {
+        let mut lookup = lookup_with_contacts();
+        lookup
+            .suffix_to_name
+            .insert("5550001111".to_string(), "Alice".to_string());
+        let addrs = addrs(&["+1-555-123-4567", "+1-555-000-1111"]);
         assert_eq!(lookup.get_group_display_name(&addrs, 3), "Alice");
     }
 }

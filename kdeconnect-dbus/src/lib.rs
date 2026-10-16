@@ -26,7 +26,9 @@ pub mod daemon;
 pub mod device;
 pub mod plugins;
 
-pub use contacts::{normalize_phone_number, phone_suffix, Contact, ContactLookup};
+pub use contacts::{
+    dedupe_addresses, normalize_phone_number, phone_suffix, Contact, ContactLookup,
+};
 pub use daemon::DaemonProxy;
 pub use device::DeviceProxy;
 

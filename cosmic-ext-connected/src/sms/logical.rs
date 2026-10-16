@@ -16,10 +16,9 @@ use kdeconnect_dbus::plugins::ConversationSummary;
 /// arriving with slightly-different address-sets).
 #[derive(Debug, Clone)]
 pub struct LogicalConversation {
-    /// Thread ID used for `replyToConversation` and view subscriptions. For
+    /// Thread ID used to open the conversation and key view subscriptions. For
     /// merged groups this is the most-recently-active sibling within the
-    /// canonical merge set, matching AOSP's outgoing-reply canonicalization
-    /// (Phase 1B Pair 4 finding).
+    /// canonical merge set.
     pub primary_thread_id: i64,
     /// All underlying thread IDs composing this logical conversation.
     /// Always contains `primary_thread_id`. Single-element for non-merged.

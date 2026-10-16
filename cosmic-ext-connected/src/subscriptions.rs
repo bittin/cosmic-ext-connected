@@ -829,52 +829,15 @@ pub fn conversation_message_subscription(
                     // Create message stream BEFORE firing request
                     let stream = zbus::MessageStream::from(&conn);
 
-                    // NOW fire D-Bus requests - after match rules are set up
+                    // NOW fire the D-Bus request - after match rules are set up
                     // This ensures we don't miss any signals
                     let device_path =
                         format!("{}/devices/{}", kdeconnect_dbus::BASE_PATH, device_id);
 
-                    // Two requests on open:
-                    // 1. SMS plugin's requestConversation → network packet to phone →
-                    //    response goes through addMessages() into m_conversations
-                    // 2. Conversations interface's requestConversation →
-                    //    RequestConversationWorker pages the cache, fetching from the
-                    //    phone first if the cache cannot fill the page → per-message
-                    //    signals our subscription consumes
-                    let sms_path =
-                        format!("{}/devices/{}/sms", kdeconnect_dbus::BASE_PATH, device_id);
-
-                    // Fire the SMS plugin request first (async; see above)
-                    match kdeconnect_dbus::plugins::SmsProxy::builder(&conn)
-                        .path(sms_path.as_str())
-                        .ok()
-                        .map(|b| b.build())
-                    {
-                        Some(fut) => match fut.await {
-                            Ok(sms_proxy) => {
-                                if let Err(e) = sms_proxy
-                                    .request_conversation(thread_id, 0, messages_per_page as i64)
-                                    .await
-                                {
-                                    tracing::warn!(
-                                        "SMS plugin request_conversation failed (non-fatal): {}",
-                                        e
-                                    );
-                                } else {
-                                    tracing::debug!(
-                                        "SMS plugin request_conversation fired for thread {}",
-                                        thread_id
-                                    );
-                                }
-                            }
-                            Err(e) => {
-                                tracing::warn!("Failed to create SMS proxy (non-fatal): {}", e);
-                            }
-                        },
-                        None => {
-                            tracing::warn!("Failed to build SMS proxy path (non-fatal)");
-                        }
-                    }
+                    // One request on open: the Conversations interface's requestConversation.
+                    // RequestConversationWorker pages the daemon's cache, fetching from the
+                    // phone when the cache cannot fill the page (26.08.0+ skips the fetch on
+                    // an empty cache); each message arrives as a conversationUpdated signal.
 
                     // Fire Conversations interface request (provides per-message signals)
                     let conversations_proxy = match async {

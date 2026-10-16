@@ -1577,9 +1577,7 @@ impl Application for ConnectApplet {
                     self.sms.conversation_load_active = true;
                     self.sms.initial_load_complete = false;
 
-                    // Always open through the daemon: `replyToConversation` resolves addresses
-                    // from its in-memory cache, which the Conversations-interface read fills
-                    // when the thread is paged
+                    // Page the thread through the daemon's worker; see docs/SMS.md Sec. Message Thread Loading
                     self.sms.sms_loading_state =
                         SmsLoadingState::LoadingMessages(LoadingPhase::Connecting);
                     self.sms.message_sync_active = false;
