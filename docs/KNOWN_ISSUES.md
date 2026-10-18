@@ -2,6 +2,37 @@
 
 Known issues and workarounds in Connected.
 
+## Encrypted RCS Conversations Missing Messages on Android 17
+
+On Android 17, messages in end-to-end encrypted RCS conversations do not reach the desktop. This covers messages you receive and messages you send from the phone. Other conversations sync normally. Nothing reports an error; the messages are simply missing. This happens on the phone, not in the applet.
+
+### Symptoms
+- A message is visible in the phone's messaging app but never appears in Connected
+- The affected conversations are end-to-end encrypted (Google Messages: open the conversation's details)
+- SMS, MMS and unencrypted RCS conversations are unaffected
+- Started after the phone was updated to Android 17
+
+### Technical details
+
+Stock Android 17 lets the messaging app mark end-to-end encrypted messages as restricted in the phone's message store, and Google Messages does so. Apps without restricted-message access cannot read them. KDE Connect does not have that access by default, and it cannot request it either, so the messages never leave the phone. This is part of Android itself, not a manufacturer change, so it applies to any phone on Android 17. Every KDE Connect desktop client is affected, not only Connected.
+
+### Workaround
+
+Grant KDE Connect restricted-message access over adb (USB debugging enabled, phone connected):
+
+    adb shell appops set org.kde.kdeconnect_tp READ_RESTRICTED_MESSAGES allow
+
+Then restart the desktop side so the daemon fetches the missing messages again:
+
+    killall kdeconnectd
+    killall cosmic-panel
+
+If the phone does not reconnect, open KDE Connect on the phone and refresh the device list. An Android or KDE Connect update may reset the grant; check it with:
+
+    adb shell appops get org.kde.kdeconnect_tp READ_RESTRICTED_MESSAGES
+
+To undo, set it back to `default`.
+
 ## Non-Media Attachments Are Invisible in Threads
 
 An MMS whose attachment is a PDF, document or other non-media file renders as an empty bubble. The file itself is sent and delivered correctly. This is a KDE Connect Android limitation, not an applet bug.
