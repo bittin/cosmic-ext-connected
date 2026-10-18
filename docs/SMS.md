@@ -136,13 +136,11 @@ The merge-off path uses the same grouping key as the merge-on path, so any pair 
 
 ### Older Message Loading
 
-Older messages are loaded automatically when the user scrolls near the top of the thread.
+Older messages are loaded automatically when the user scrolls near the top of the thread, and are prepended as they arrive. The thread is anchored to the bottom, so a prepend does not move the view.
 
-- Scroll position and content height are captured before the fetch.
-- Older messages are prepended when they arrive.
-- Scroll offset is adjusted so the user stays anchored near the same visible messages - but only when the page prepended something. A page that settles on re-served duplicates alone skips the adjustment.
+A thread's page ends on a full page of new messages, or when a `conversationLoaded` count shows the daemon has emitted all it will (`served >= min(requested, count)`). Because the range starts at 0, the daemon re-serves the messages already shown before the older ones; those duplicates count toward position in the range (`served`), not toward progress (`new`), so a page cannot settle on them.
 
-For merged conversations the fetch fans out: one request per threadId in `current_merged_thread_ids` that still has more to give (`thread_has_more`), each carrying its own already-loaded count. The page is held open until every targeted thread has answered (`OlderPageLoad.pending`), so the prepend and the scroll-offset adjustment happen once against the whole batch rather than per thread. `messages_has_more` is the OR across `thread_has_more`, so the thread stops paginating only when every merged thread is exhausted.
+For merged conversations, the fetch fans out: one request per threadId in `current_merged_thread_ids` that still has more to give (`thread_has_more`), each carrying its own already-loaded count. Each thread settles on its own counters, and the page is held open until every targeted thread has settled (`OlderPageLoad.pending`). `messages_has_more` is the OR across `thread_has_more`, so the thread stops paginating only when every merged thread is exhausted.
 
 Each request is `requestConversation(threadId, 0, loaded_count + page)` — **the offset is pinned to 0 here for the same reason as the truncation retry above**: a non-zero `start` segfaults kdeconnectd 23.08.5.
 

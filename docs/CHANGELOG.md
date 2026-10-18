@@ -20,6 +20,7 @@
 - When KDE Connect stops, devices show as offline right away instead of staying "connected" until the next click.
 - Replies now go to the people in the conversation as Connected shows them. Previously KDE Connect picked the recipients from the oldest message it had cached, which could send a reply to nobody (your own number's thread), to a number twice, or to a stray `0001` participant.
 - Conversation names no longer show a stray `0001` participant beside the real contact.
+- Scrolling up in a conversation keeps loading older messages. Previously it could stop after the first older page, leaving the rest of the history out of reach.
 
 ## [0.8.0] - 2026-08-30
 Connected's popup now blurs like the rest of COSMIC, and it starts KDE Connect for you instead of failing with a cryptic error, so first run works the same on Fedora, Arch and Debian as it does on Pop!_OS.
