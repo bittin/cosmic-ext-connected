@@ -82,7 +82,7 @@ cosmic-ext-connected/
 │   │   ├── conversation_subscription.rs  # List-loading state machine + cached emit
 │   │   ├── fetch.rs                      # Conversation fetching
 │   │   ├── logical.rs                    # LogicalConversation: reaction-bucket merging
-│   │   ├── send.rs                       # replyToConversation / sendWithoutConversation
+│   │   ├── send.rs                       # sendSms (replies) / sendWithoutConversation
 │   │   ├── store.rs                      # SmsConversationStore (cache + merge state)
 │   │   └── views.rs                      # Conversation list and thread views
 │   ├── ui/                  # Device list / device page / shared widgets

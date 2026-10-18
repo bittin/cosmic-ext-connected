@@ -148,10 +148,10 @@ busctl --user call org.kde.kdeconnect \
 
 The daemon exposes `requestConversation` on two interfaces with **different behavior**:
 
-- **`org.kde.kdeconnect.device.sms`** (at `/devices/{id}/sms`): Sends a network packet to the phone. The response flows through `addMessages()` which populates the daemon's in-memory `m_conversations` cache. Use this to prime the cache.
+- **`org.kde.kdeconnect.device.sms`** (at `/devices/{id}/sms`): Sends a network packet to the phone. The response flows through `addMessages()` which populates the daemon's in-memory `m_conversations` cache.
 - **`org.kde.kdeconnect.device.conversations`** (at `/devices/{id}`): Creates a `RequestConversationWorker` that reads `m_conversations` and emits one `conversationUpdated` D-Bus signal per message it can already serve. The worker itself never writes to the cache; it only reads and emits.
 
-Thread loading fires both: SMS plugin first (cache priming for replies), then Conversations interface (per-message signals for UI). See `docs/SMS.md` → "Message Thread Loading".
+Connected calls only the Conversations one. The SMS-plug method is documented because it exists, not because it is used.
 
 **There is no persistent store.** `m_conversations` is an in-memory `QMap` on the daemon, populated
 only by `addMessages()` from phone responses, and it dies with the daemon process. Nothing in

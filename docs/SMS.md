@@ -10,7 +10,7 @@ threadId of the open conversation. Both are cache-first then signal-driven — a
 per subscription for immediate display, then everything else arrives as broadcast signals.
 
 Reaction-bucket threads — separate `threadId`s the phone shows as one conversation — are merged
-into a `LogicalConversation` before anything renders. Most list, pagination and reply-target logic
+into a `LogicalConversation` before anything renders. Most list, pagination and reply-recipient logic
 therefore operates on a *set* of threadIds rather than one, which is the assumption most worth
 checking before changing anything here.
 
@@ -76,9 +76,7 @@ Thread loading uses a long-lived subscription:
 
 1. Opening a thread starts `conversation_message_subscription`.
 2. Match rules are installed before requests are fired.
-3. Two `requestConversation()` calls are made:
-   - SMS plugin request for daemon cache priming
-   - Conversations request for per-message UI signals
+3. One `requestConversation()` call is made, on the Conversations interface, for per-message UI signals.
 4. If the daemon's cache holds a full page, the per-message signals arrive at once and the load completes on the tenth. If it has to fetch from the phone, `conversationLoaded` arrives first with the daemon's count and the page follows it within a millisecond; the load completes when `received >= min(page, count)`.
 5. `PHONE_RESPONSE_TIMEOUT_MS` is a net for a page that never fills, not the normal completion.
 6. The subscription then continues listening for new incoming messages and sent-message echoes until the thread closes.
@@ -103,7 +101,7 @@ Merging precondition — the grouping key in `merge_into_logical` (`sms/logical.
 
 Each `LogicalConversation` carries:
 
-- `primary_thread_id` — the most-recently-active sibling within the merged set; used as the reply target.
+- `primary_thread_id` — the most-recently-active sibling within the merged set; the list row's identity.
 - `merged_thread_ids` — all underlying threadIds composing this logical conversation. Always contains `primary_thread_id`. Single-element for non-merged.
 
 Opening a merged conversation fans out the message subscription: one `conversation_message_subscription` per underlying threadId, each firing its own `requestConversation` and emitting `ConversationMessageReceived` for its own thread. Signal handlers accept any thread in the open `current_merged_thread_ids` set rather than only the primary.
@@ -113,17 +111,17 @@ Multi-subscription completion semantics:
 - `ConversationLoadComplete` is idempotent. Math (sort, `messages_has_more`, `last_seen_sms`) always runs; loading-state clear and scroll-to-bottom snap fire only on the first arrival. Late completions silently refresh stats so a slow-completing subscription can't yank the user back to bottom.
 - `thread_has_more: HashMap<i64, bool>` tracks exhaustion per thread as `loaded_t < total_count`, counting only messages carrying that `thread_id` — so per-thread counts are directly comparable and merged-set size no longer forces a heuristic. The heuristic survives only for `total_count == 0`, which the daemon uses to mean *unknown*, not *empty*; there it falls back to `loaded_t >= MESSAGES_PER_PAGE`. `messages_has_more` is the OR across `thread_has_more` over `current_merged_thread_ids`.
 
-### Reply target rule
+### Recipient rule
 
-When the user sends a reply into a conversation, Connected picks the threadId to pass to `replyToConversation` based on the merge state of the open conversation:
+A reply names its recipients, not a thread. The phone files an outgoing message by its recipient set, so no thread is passed
+and there is no merged-set redirect to choose. Connected takes the recipients from the newest loaded message that carries
+addresses, deduplicated (`dedupe_addresses`: last ten digits, a `0001` phantom dropped beside a real number), and falls 
+back to the conversation's own address list. The deduplication also prevents the recipient-side duplicate delivery that 
+the old symmetric-merge redirect existed to avoid.
 
-- **Symmetric merge** (canonical address-sets equal across the merged group — the case the primary-equality heuristic produces): redirect to `primary_thread_id`. This matches AOSP's outgoing-reply canonicalization, so the echo lands on the threadId Connected passed and the optimistic-send reconciliation can complete cleanly. As a side effect, the redirect bypasses AOSP's per-bucket processing that would otherwise produce **recipient-side duplicate delivery** — the recipient receives one copy instead of two.
-- **Asymmetric / subset clause** (untested; reintroduced if/when the subset clause returns to the merge heuristic): preserve the displayed thread's threadId. Conservative until field data confirms the redirect is address-safe under subset shapes. The branch is dormant under the primary-equality heuristic — every merged set is symmetric by construction — so production paths today take the symmetric arm exclusively.
-- **Non-merged or unknown thread**: pass the displayed threadId through unchanged.
-
-The duplicate-delivery side effect is empirically locked. Pre-merge behavior on a known reaction-bucket pair reproduced two-copy delivery to the recipient. Under the redirect, the same pair delivers one copy. The redirect is therefore a corrective fix for a recipient-visible bug, not just a display-merge convenience.
-
-The reply-target rule applies only when merging is on. With merging off (see "Per-entry markers and SMS-view toggle" below), Connected sends to whichever underlying thread the user opened. Replying into the non-canonical sibling thread of a reaction-bucket pair will reproduce the AOSP-canonicalization symptoms — the echo arrives on the canonical primary instead of the displayed thread, the optimistic-send "Sending…" indicator can stay pinned, and the recipient may receive duplicate copies. This is documented behavior gated behind the user opt-out, not a regression.
+With merging off (see "Per-entry markers and SMS-view toggle" below), a reply from the non-canonical sibling of a reaction-
+bucket pair is still filed on the canonical thread, so its echo lands outside the open thread and the "Sending..." indicator
+can stay pinned. This is documented behavior gated behind the user opt-out, not a regression.
 
 ### Per-entry markers and SMS-view toggle
 
@@ -178,7 +176,11 @@ back inside one refresh window. Nothing re-activates the daemon on loss; the nex
 
 ### Replies
 
-Replies use `replyToConversation(threadId, message, attachments)` on the Conversations D-Bus interface. This preserves thread context, including group conversations, but depends on the daemon's in-memory `m_conversations` cache being primed first.
+Replies call `sendSms(addresses, message, attachments, subID)` on the SMS plugin (`/devices/{id}/sms`), with recipients 
+Connected selects (`reply_recipients`, see "Recipient rule" above) and the reference message's `subID`. Connected does 
+not use `replyToConversation`: it resolves recipients from the oldest message in the daemon's in-memory cache, which was 
+the wrong set for 20 of 100 recent threads (D.63), and on a pre-`26.08.0` daemon it needs that cache primed. If no message
+or conversation address is available, Connected shows a status and sends nothing.
 
 On success:
 
@@ -186,7 +188,10 @@ On success:
 - an optimistic sent bubble is inserted into the open thread
 - the long-lived message subscription reconciles that optimistic entry when the phone echoes back the real sent message
 
-For merged conversations, optimistic-send reconciliation matches by `OPTIMISTIC_MESSAGE_UID` + body + 5-minute window with no thread-id filter, so an echo arriving on a sibling thread within `merged_thread_ids` still upgrades the optimistic bubble in place. Combined with the symmetric-merge reply-target redirect (see "Reply target rule" above), this is what closes the present-tense "stuck spinner" UX behavior that pre-merge code paths produced when AOSP canonicalized the outgoing message into a non-displayed sibling thread.
+For merged conversations, optimistic-send reconciliation matches by `OPTIMISTIC_MESSAGE_UID` + body + 5-minute window 
+with no thread-id filter, so an echo arriving on a sibling thread within `merged_thread_ids` still upgrades the optimistic 
+bubble in place. Because the phone files a reply by its recipient set, the echo lands on the canonical thread, which is
+in `merged_thread_ids` whenever merging is on.
 
 ### New Messages
 
@@ -194,7 +199,7 @@ New-message compose uses `sendWithoutConversation(addresses, message, attachment
 
 ### Attachments
 
-Both compose surfaces stage one file for the next send, passed through the `attachmentUrls` parameter that `replyToConversation` and `sendWithoutConversation` always declared and always received empty.
+Both compose surfaces stage one file for the next send, passed through the `attachmentUrls` parameter of `sendSms` (replies) and `sendWithoutConversation` (new messages).
 
 **The wire value is a plain absolute path**, not a `file://` URL and not base64, despite the name. The daemon opens it with `QFile`, base64-encodes the contents into the packet and sniffs the MIME type itself (`smsplugin.cpp`). Under Flatpak the chooser portal returns a path under the document portal mount, which the daemon reads on the host as the same user, so no `finish-args` entry is needed.
 
@@ -242,10 +247,9 @@ The KDE Connect daemon sets its Qt application name to `"kdeconnect.daemon"` in 
 ## Known Constraints
 
 - `conversationLoaded` reports `m_known_messages[id].size()` - the count of distinct message UIDs the daemon currently holds **in memory** for that thread - not the phone's authoritative total. It is emitted only from `addMessages()`, so it fires only when the phone has delivered a batch, never on a purely cached read.
-- Reply sending still depends on daemon cache priming before `replyToConversation` can work reliably.
 - Notification correctness depends on careful `last_seen_sms` handling when opening threads and merging incoming data.
-- **A send has no terminal state.** `Ok` from `replyToConversation` / `sendWithoutConversation` means the D-Bus call worked, nothing more (`docs/DBUS.md` → "A void method's `Ok`"); the only evidence of delivery is the phone's echo, so an unconfirmed send stays an optimistic bubble with no failed state. The conversation list is not updated optimistically. The row changes when the phone's echo arrives on the live list subscription.
-- **A pre-`26.08.0` daemon silently discards a reply when the thread is not in its cache.** Upstream BUG 517659, fixed in `3bf16922` and first shipped in `v26.08.0`: `replyToConversation()` logged a warning and dropped the message outright when `m_conversations` did not hold the target thread, which is the state after a device reconnect, or before the list has loaded for the session. **This is the daemon's behaviour, not applet logic** - the cache-priming and cold-start constraints above describe what Connected does about it, not a defect Connected can repair. Connected cannot even detect it: the method returns void (see "A send has no terminal state" above), so the optimistic bubble stands for a message that was never sent. Measured 2026-08-28 by calling `replyToConversation` directly with a thread ID that does not exist: `23.08.5` logs `Got a conversationID for a conversation with no messages!` and returns, while `26.08.0` logs `not in cache, requesting from phone` and fetches. Pop's `23.08.5` and Fedora's `26.04.3` lack the fix; Arch's `26.08.0` has it.
+- **A send has no terminal state.** `Ok` from `sendSms` / `sendWithoutConversation` means the D-Bus call worked, nothing more (`docs/DBUS.md` → "A void method's `Ok`"); the only evidence of delivery is the phone's echo, so an unconfirmed send stays an optimistic bubble with no failed state. The conversation list is not updated optimistically. The row changes when the phone's echo arrives on the live list subscription.
+- **History: a pre-`26.08.0` daemon silently discards a `replyToConversation` when the thread is not in its cache.** Connected no longer calls `replyToConversation` (see "Replies"), so this no longer affects it; kept for anyone driving the daemon directly. Upstream BUG 517659, fixed in `3bf16922` and first shipped in `v26.08.0`: `replyToConversation()` logged a warning and dropped the message outright when `m_conversations` did not hold the target thread, which is the state after a device reconnect, or before the list has loaded for the session. **This is the daemon's behaviour, not applet logic**. 
 - **An attachment-only MMS can echo back without its attachment.** A text-less send sometimes come back with `eventField 0` and an empty attachment list, so the bubble renders as a bare timestamp. No pattern found; upstream. See `docs/KNOWN_ISSUES.md`.
 
 ## Reference
@@ -275,7 +279,7 @@ D-Bus surface:
 
 - Device base path: `/modules/kdeconnect/devices/{id}`
 - Conversations interface: `org.kde.kdeconnect.device.conversations` (signals: `conversationCreated`, `conversationUpdated`, `conversationLoaded`)
-- SMS plugin path: `/modules/kdeconnect/devices/{id}/sms` (`org.kde.kdeconnect.device.sms`) — used by the thread open's `requestConversation`; the list bootstrap goes through the Conversations interface
+- SMS plugin path: `/modules/kdeconnect/devices/{id}/sms` (`org.kde.kdeconnect.device.sms`) — used by `sendSms` (replies) and `getAttachment`; thread loading and the list bootstrap go through the Conversations interface.
 
 ### Message Types
 
