@@ -33,6 +33,24 @@ If the phone does not reconnect, open KDE Connect on the phone and refresh the d
 
 To undo, set it back to `default`.
 
+## Group Messages and Attachments Sent from the Desktop Never Confirm on Android 17
+
+On Android 17, an MMS sent from the desktop (any group message, or any message with an attachment) is delivered to its recipients but is never recorded as sent on the phone. Connected therefore never receives the sent copy, and the bubble stays on "Sending". One-to-one text messages go as SMS and are unaffected. This happens on the phone, not in the applet.
+
+### Symptoms
+- The recipients receive the message
+- The sent bubble stays on "Sending" and is gone when the conversation is reopened
+- The phone's messaging app shows the send as "Not sent", often twice, or does not show it at all
+- One-to-one text messages from the desktop confirm normally
+
+### Technical details
+
+Stock Android 17 changed how an MMS from an app other than the default messaging app is sent: it first offers the message to the default app, and when that app declines, sends it anyway and saves it a second time over the first copy. The send succeeds, but the stored message then disappears from the phone, so KDE Connect has nothing to read back and never reports it to the desktop. This is part of Android itself, not a manufacturer change, so it applies to any phone on Android 17. What removes the stored message is not yet known. The same happens with the stock KDE Connect SMS app, so it affects every KDE Connect desktop client, not only Connected.
+
+### Workaround
+
+Send group messages and attachments from the phone until this is resolved. Before resending a message that shows "Not sent", check with a recipient whether it already arrived.
+
 ## Non-Media Attachments Are Invisible in Threads
 
 An MMS whose attachment is a PDF, document or other non-media file renders as an empty bubble. The file itself is sent and delivered correctly. This is a KDE Connect Android limitation, not an applet bug.
