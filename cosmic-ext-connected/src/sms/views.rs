@@ -466,6 +466,8 @@ pub struct MessageThreadParams<'a> {
     pub status_message: Option<&'a str>,
     /// File staged for the next send, if any
     pub pending_attachment: Option<&'a StagedAttachment>,
+    /// A press on Load older would fire: more history exists and the initial load has completed.
+    pub can_load_older: bool,
 }
 
 /// Enter sends; Shift+Enter falls through to default newline binding
@@ -555,6 +557,14 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
             .into();
 
             msg_column = msg_column.push(loading_indicator);
+        } else if params.can_load_older {
+            msg_column = msg_column.push(
+                widget::container(
+                    widget::button::text(fl!("load-older")).on_press(Message::LoadOlderMessages),
+                )
+                .width(Length::Fill)
+                .align_x(Alignment::Center),
+            );
         }
 
         for msg in params.messages {

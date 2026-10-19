@@ -87,8 +87,9 @@ pub(crate) struct OlderPageLoad {
     new: HashMap<i64, u32>,
     /// Per-thread range end at fire time (`loaded_t + page_size`), as the request carries
     requested: HashMap<i64, u32>,
-    /// Per-thread `conversationLoaded` count seen during this page.
-    count: HashMap<i64, u64>,
+    /// Per-thread: a `conversationLoaded` arrived after the cache burst, and whether
+    /// it grew the daemon's known count past the last one seen.
+    grew: HashMap<i64, bool>,
     /// Merged threads whose page hasn't settled yet; finalize when empty
     pending: HashSet<i64>,
     /// Requested page size (== MESSAGES_PER_PAGE).
@@ -100,22 +101,45 @@ pub(crate) struct OlderPageLoad {
 }
 
 /// Whether one thread of an older page has settled, and if so its `has_more`.
-/// `new >= page`: a full page of history. A known `count` with `served` at
-/// `min(requested, count)`: the daemon has emitted all it will.
+/// `new >= page`: a full page of history. `grew` is `Some` once a
+/// `conversationLoaded` arrives after the cache burst, the last signal the daemon
+/// sends for the page: more exists if the cache filled the request or the fetch
+/// added uids.
 fn page_settle(
     page: u32,
     requested: u32,
     served: u32,
     new: u32,
-    count: Option<u64>,
-    loaded: u64,
+    grew: Option<bool>,
 ) -> Option<(bool, &'static str)> {
     if new >= page {
         return Some((true, "full-page"));
     }
-    let count = count?;
-    (u64::from(served) >= u64::from(requested).min(count))
-        .then_some((loaded < count, "conversation-loaded"))
+    let grew = grew?;
+    Some((served >= requested || grew, "conversation-loaded"))
+}
+
+/// The display floor of a merged set: the newest oldest-loaded date among
+/// threads that still have more (unknown counts as more). Messages older than
+/// it sit above history the daemon has not served yet, so the view hides them
+/// and an older page targets only the threads at the floor. `None` when no
+/// thread has more.
+fn display_floor(
+    messages: &[SmsMessage],
+    threads: &[i64],
+    has_more: &HashMap<i64, bool>,
+) -> Option<i64> {
+    threads
+        .iter()
+        .filter(|t| *has_more.get(t).unwrap_or(&true))
+        .filter_map(|&t| {
+            messages
+                .iter()
+                .filter(|m| m.thread_id == t)
+                .map(|m| m.date)
+                .min()
+        })
+        .max()
 }
 
 pub struct SmsConversationStore {
@@ -164,6 +188,9 @@ pub struct SmsConversationStore {
     pub(crate) messages_has_more: bool,
     pub(crate) older_page: Option<OlderPageLoad>,
     pub(crate) thread_has_more: HashMap<i64, bool>,
+    /// Last `conversationLoaded` count per thread of the open set. Only whether it
+    /// grows is used: the count includes uids the daemon's cache overwrote.
+    pub(crate) last_count: HashMap<i64, u64>,
 
     // New-message compose
     pub(crate) new_message_recipients: Vec<(String, String)>,
@@ -214,6 +241,7 @@ impl SmsConversationStore {
             messages_has_more: true,
             older_page: None,
             thread_has_more: HashMap::new(),
+            last_count: HashMap::new(),
             new_message_recipients: Vec::new(),
             new_message_recipient_input: String::new(),
             new_message_body: widget::text_editor::Content::new(),
@@ -275,11 +303,12 @@ impl SmsConversationStore {
         // continued or stopped — the log is otherwise silent here, so a capture
         // cannot distinguish the full-page path from the conversationLoaded one.
         tracing::debug!(
-            "Older page settled: detector={:?}, requested={:?}, served={:?}, new={:?}, prepended={}, messages={}, has_more={}",
+            "Older page settled: detector={:?}, requested={:?}, served={:?}, new={:?}, grew={:?}, prepended={}, messages={}, has_more={}",
             load.settled_by,
             load.requested,
             load.served,
             load.new,
+            load.grew,
             prepended,
             self.messages.len(),
             self.messages_has_more
@@ -306,11 +335,6 @@ impl SmsConversationStore {
             .older_page
             .as_ref()
             .filter(|l| l.pending.contains(&thread_id))?;
-        let loaded_t = self
-            .messages
-            .iter()
-            .filter(|m| m.thread_id == thread_id)
-            .count() as u64;
         let (has_more, detector) = page_settle(
             load.page_size,
             load.requested
@@ -319,12 +343,95 @@ impl SmsConversationStore {
                 .unwrap_or(load.page_size),
             load.served.get(&thread_id).copied().unwrap_or(0),
             load.new.get(&thread_id).copied().unwrap_or(0),
-            load.count.get(&thread_id).copied(),
-            loaded_t,
+            load.grew.get(&thread_id).copied(),
         )?;
         self.thread_has_more.insert(thread_id, has_more);
         self.settle_thread(thread_id, detector)
             .then(|| self.finalize_older_page())
+    }
+
+    fn display_floor(&self) -> Option<i64> {
+        display_floor(
+            &self.messages,
+            &self.current_merged_thread_ids,
+            &self.thread_has_more,
+        )
+    }
+
+    /// Fire an older page for threads at the display floor. Returns `none()`
+    /// when nothing is wanted: no more, a page in flight, the initial load still
+    /// running, or no messages.
+    fn request_older_page(&mut self, ctx: &SmsCtx) -> cosmic::app::Task<Message> {
+        if !self.messages_has_more
+            || self.is_loading_more_messages()
+            || !self.initial_load_complete
+            || self.messages.is_empty()
+        {
+            return cosmic::app::Task::none();
+        }
+        let (Some(conn), Some(device_id)) = (ctx.conn, self.sms_device_id.as_ref()) else {
+            return cosmic::app::Task::none();
+        };
+        let floor = self.display_floor();
+        let targets: Vec<(i64, u32)> = self
+            .current_merged_thread_ids
+            .iter()
+            .copied()
+            .filter(|t| *self.thread_has_more.get(t).unwrap_or(&true))
+            .filter(|&t| {
+                let oldest_t = self
+                    .messages
+                    .iter()
+                    .filter(|m| m.thread_id == t)
+                    .map(|m| m.date)
+                    .min();
+                oldest_t.zip(floor).is_none_or(|(d, f)| d >= f)
+            })
+            .map(|t| {
+                let loaded_t = self.messages.iter().filter(|m| m.thread_id == t).count() as u32;
+                (t, loaded_t)
+            })
+            .collect();
+        if targets.is_empty() {
+            return cosmic::app::Task::none();
+        }
+        tracing::debug!(
+            "Prefetching older messages (floor={:?}, targets={:?})",
+            floor,
+            targets
+        );
+
+        self.sms_loading_state = SmsLoadingState::LoadingMoreMessages;
+        self.older_page = Some(OlderPageLoad {
+            served: HashMap::new(),
+            new: HashMap::new(),
+            requested: targets
+                .iter()
+                .map(|&(t, loaded_t)| (t, loaded_t + MESSAGES_PER_PAGE))
+                .collect(),
+            grew: HashMap::new(),
+            pending: targets.iter().map(|&(t, _)| t).collect(),
+            page_size: MESSAGES_PER_PAGE,
+            len_before: self.messages.len(),
+            settled_by: HashMap::new(),
+        });
+
+        let tasks: Vec<_> = targets
+            .iter()
+            .map(|&(t, loaded_t)| {
+                cosmic::app::Task::perform(
+                    request_older_messages_async(
+                        conn.clone(),
+                        device_id.clone(),
+                        t,
+                        loaded_t,
+                        MESSAGES_PER_PAGE,
+                    ),
+                    cosmic::Action::App,
+                )
+            })
+            .collect();
+        cosmic::app::Task::batch(tasks)
     }
 
     /// Re-derive `conversations` from the raw cache. Honors
@@ -714,78 +821,14 @@ impl SmsConversationStore {
             }
             Message::MessageThreadScrolled(viewport) => {
                 // Prefetch older messages when user scrolls near the top
-                // Trigger when within 100 pixels of the top and not already loading
                 const PREFETCH_THRESHOLD_PX: f32 = 100.0;
-
-                let scroll_offset = viewport.absolute_offset_reversed().y;
-                let content_height = viewport.content_bounds().height;
-
-                if scroll_offset < PREFETCH_THRESHOLD_PX
-                    && self.messages_has_more
-                    && !self.is_loading_more_messages()
-                    && self.initial_load_complete
-                    && !self.messages.is_empty()
-                {
-                    tracing::debug!(
-                        "Prefetching older messages (scroll_y={:.1}px, content_height={:.1}px)",
-                        scroll_offset,
-                        content_height
-                    );
-                    // Capture pre-request scroll state and start the older page.
-                    // Completion is detected on the streaming path (save count
-                    // or ConversationStoreLoaded), not from a collected reply.
-                    if let (Some(conn), Some(device_id)) = (ctx.conn, self.sms_device_id.as_ref()) {
-                        let targets: Vec<(i64, u32)> = self
-                            .current_merged_thread_ids
-                            .iter()
-                            .copied()
-                            .filter(|t| *self.thread_has_more.get(t).unwrap_or(&true))
-                            .map(|t| {
-                                let loaded_t =
-                                    self.messages.iter().filter(|m| m.thread_id == t).count()
-                                        as u32;
-                                (t, loaded_t)
-                            })
-                            .collect();
-                        if targets.is_empty() {
-                            return (cosmic::app::Task::none(), SmsReply::NoOp);
-                        }
-
-                        self.sms_loading_state = SmsLoadingState::LoadingMoreMessages;
-                        self.older_page = Some(OlderPageLoad {
-                            served: HashMap::new(),
-                            new: HashMap::new(),
-                            requested: targets
-                                .iter()
-                                .map(|&(t, loaded_t)| (t, loaded_t + MESSAGES_PER_PAGE))
-                                .collect(),
-                            count: HashMap::new(),
-                            pending: targets.iter().map(|&(t, _)| t).collect(),
-                            page_size: MESSAGES_PER_PAGE,
-                            len_before: self.messages.len(),
-                            settled_by: HashMap::new(),
-                        });
-
-                        let tasks: Vec<_> = targets
-                            .iter()
-                            .map(|&(t, loaded_t)| {
-                                cosmic::app::Task::perform(
-                                    request_older_messages_async(
-                                        conn.clone(),
-                                        device_id.clone(),
-                                        t,
-                                        loaded_t,
-                                        MESSAGES_PER_PAGE,
-                                    ),
-                                    cosmic::Action::App,
-                                )
-                            })
-                            .collect();
-                        return (cosmic::app::Task::batch(tasks), SmsReply::NoOp);
-                    }
+                if viewport.absolute_offset_reversed().y < PREFETCH_THRESHOLD_PX {
+                    return (self.request_older_page(ctx), SmsReply::NoOp);
                 }
                 (cosmic::app::Task::none(), SmsReply::NoOp)
             }
+
+            Message::LoadOlderMessages => (self.request_older_page(ctx), SmsReply::NoOp),
 
             Message::BubblePressStarted { uid, body } => {
                 self.pressed_bubble_uid = Some(uid);
@@ -1015,16 +1058,26 @@ impl SmsConversationStore {
                     return (cosmic::app::Task::none(), SmsReply::NoOp);
                 }
 
-                // During an older page this records the daemon's count for the thread; it
-                // settles only once `served` reaches min(requested, count) (see
-                // `page_settle`). Settling on arrival would read a mid-stream page.
+                let grew = total_count > 0
+                    && self
+                        .last_count
+                        .get(&thread_id)
+                        .is_none_or(|&prev| total_count > prev);
+                if total_count > 0 {
+                    self.last_count.insert(thread_id, total_count);
+                }
+
+                // During an older page this records whether the count grew; the thread
+                // settles on the first conversationLoaded after the cache burst (see
+                // `page_settle`).
                 if let Some(load) = self
                     .older_page
                     .as_mut()
                     .filter(|l| l.pending.contains(&thread_id))
                 {
-                    if total_count > 0 {
-                        load.count.insert(thread_id, total_count);
+                    // Before the cache burst (`served == 0`) this is another request's signal
+                    if total_count > 0 && load.served.get(&thread_id).is_some_and(|&s| s > 0) {
+                        *load.grew.entry(thread_id).or_insert(false) |= grew;
                     }
                     return (
                         self.try_settle(thread_id)
@@ -1054,6 +1107,10 @@ impl SmsConversationStore {
                 } else {
                     loaded_t >= MESSAGES_PER_PAGE as u64
                 };
+                // Never raises: outside a page a grown count is usually a new incoming
+                // message, not older history, and raising would bring back the floor.
+                let has_more_t =
+                    has_more_t && *self.thread_has_more.get(&thread_id).unwrap_or(&true);
                 self.thread_has_more.insert(thread_id, has_more_t);
                 self.messages_has_more = self
                     .current_merged_thread_ids
@@ -1671,11 +1728,14 @@ impl SmsConversationStore {
                 merge_reaction_threads: config.merge_reaction_threads,
             }),
             SmsViewMode::MessageThread => {
+                let visible_from = self
+                    .display_floor()
+                    .map_or(0, |floor| self.messages.partition_point(|m| m.date < floor));
                 let thread = view_message_thread(MessageThreadParams {
                     device_id: self.sms_device_id.as_deref().unwrap_or(""),
                     device_name: self.sms_device_name.as_deref().unwrap_or(""),
                     thread_addresses: self.current_thread_addresses.as_deref(),
-                    messages: &self.messages,
+                    messages: &self.messages[visible_from..],
                     contacts: &self.contacts,
                     loading_state: &self.sms_loading_state,
                     sms_compose_text: &self.sms_compose_text,
@@ -1685,6 +1745,7 @@ impl SmsConversationStore {
                     pressed_bubble_uid: self.pressed_bubble_uid,
                     show_copy_hint: self.show_copy_hint,
                     status_message,
+                    can_load_older: self.messages_has_more && self.initial_load_complete,
                 });
                 // popup_container uses Shrink height internally, which sets a
                 // compression flag on iced's layout limits. Under compression,
@@ -1774,36 +1835,66 @@ mod tests {
 
     #[test]
     fn page_settle_rules() {
-        // (requested, served, new, count, loaded)
-        type Input = (u32, u32, u32, Option<u64>, u64);
+        // (requested, served, new, grew)
+        type Input = (u32, u32, u32, Option<bool>);
         // page 10
         let cases: &[(Input, Option<(bool, &str)>)] = &[
-            // 652: cache-served page, the duplicates come first
-            ((20, 10, 0, None, 10), None),
-            ((20, 20, 10, None, 20), Some((true, "full-page"))),
-            // duplicates only, no count: no settle, no latch
-            ((20, 20, 0, None, 10), None),
-            // count arrives before the rest of the page
-            ((30, 25, 5, Some(72), 25), None),
-            ((30, 30, 10, Some(72), 30), Some((true, "full-page"))),
-            // top of history
+            ((20, 20, 10, None), Some((true, "full-page"))),
+            // duplicates only, no signal: no settle, no latch
+            ((20, 20, 0, None), None),
+            // short page, signal not yet arrived
+            ((50, 49, 9, None), None),
+            // 1291: top of history, the fetch added nothing
             (
-                (30, 22, 2, Some(22), 22),
+                (110, 101, 1, Some(false)),
                 Some((false, "conversation-loaded")),
             ),
-            // count but nothing new
+            // 652: short page behind a top-up, the fetch added uids
+            ((50, 49, 9, Some(true)), Some((true, "conversation-loaded"))),
+            // cache filled the request, mostly duplicates
             (
-                (30, 20, 0, Some(20), 20),
-                Some((false, "conversation-loaded")),
+                (40, 40, 5, Some(false)),
+                Some((true, "conversation-loaded")),
             ),
+            // a full page wins over the signal
+            ((30, 30, 10, Some(false)), Some((true, "full-page"))),
         ];
-        for &((requested, served, new, count, loaded), want) in cases {
+        for &((requested, served, new, grew), want) in cases {
             assert_eq!(
-                page_settle(10, requested, served, new, count, loaded),
+                page_settle(10, requested, served, new, grew),
                 want,
-                "requested={requested} served={served} new={new} count={count:?}"
+                "requested={requested} served={served} new={new} grew={grew:?}"
             );
         }
+    }
+    #[test]
+    fn display_floor_rules() {
+        // thread 1 is busy (its page covers a short recent span), thread 2 is
+        // quiet (its page reaches far back)
+        let at = |thread_id: i64, date: i64| SmsMessage {
+            thread_id,
+            ..msg(0, date, &[], -1)
+        };
+        let messages = [at(2, 100), at(2, 500), at(1, 900), at(1, 950)];
+        let more = HashMap::from([(1, true), (2, true)]);
+
+        // single thread: its own oldest
+        assert_eq!(display_floor(&messages, &[1], &more), Some(900));
+        // busy plus quiet: the busy thread's oldest
+        assert_eq!(display_floor(&messages, &[1, 2], &more), Some(900));
+        // busy thread at the top of its history drops out; the floor falls to the quiet one
+        let busy_done = HashMap::from([(1, false), (2, true)]);
+        assert_eq!(display_floor(&messages, &[1, 2], &busy_done), Some(100));
+        // absent from the map counts as more
+        assert_eq!(
+            display_floor(&messages, &[1, 2], &HashMap::new()),
+            Some(900)
+        );
+        // no thread with more
+        let all_done = HashMap::from([(1, false), (2, false)]);
+        assert_eq!(display_floor(&messages, &[1, 2], &all_done), None);
+        // a thread with nothing loaded contributes nothing
+        assert_eq!(display_floor(&messages, &[1, 2, 3], &more), Some(900));
     }
 
     fn addrs(list: &[&str]) -> Vec<String> {

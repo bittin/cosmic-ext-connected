@@ -225,6 +225,8 @@ pub enum Message {
     },
     /// Message thread scrolled - used for prefetching older messages
     MessageThreadScrolled(scrollable::Viewport),
+    /// User pressed Load older at the top of the thread
+    LoadOlderMessages,
     /// User started pressing a message bubble (for long-press copy)
     BubblePressStarted {
         uid: i32,
@@ -880,6 +882,7 @@ impl Application for ConnectApplet {
                                 .iter()
                                 .map(|&t| (t, true))
                                 .collect();
+                            self.sms.last_count.clear();
                             self.sms.known_message_ids.clear();
                             self.sms.messages.clear();
                             self.sms.initial_load_complete = false;
@@ -1509,6 +1512,7 @@ impl Application for ConnectApplet {
                 self.sms.messages.clear();
                 self.sms.known_message_ids.clear();
                 self.sms.thread_has_more.clear();
+                self.sms.last_count.clear();
                 self.sms.messages_has_more = true;
                 self.sms.older_page = None;
                 self.sms.current_thread_id = None;
@@ -1567,6 +1571,7 @@ impl Application for ConnectApplet {
                         .iter()
                         .map(|&t| (t, true))
                         .collect();
+                    self.sms.last_count.clear();
 
                     // Clear known message IDs for fresh deduplication
                     self.sms.known_message_ids.clear();
@@ -1594,6 +1599,7 @@ impl Application for ConnectApplet {
                 self.sms.current_thread_addresses = None;
                 self.sms.current_merged_thread_ids.clear();
                 self.sms.thread_has_more.clear();
+                self.sms.last_count.clear();
                 self.sms.messages.clear();
                 self.sms.sms_compose_text = widget::text_editor::Content::new();
                 self.sms.pending_attachment = None;
@@ -1978,6 +1984,7 @@ impl Application for ConnectApplet {
             | Message::ConversationListStreamEnded { .. }
             | Message::OlderMessagesRequested { .. }
             | Message::MessageThreadScrolled(_)
+            | Message::LoadOlderMessages
             | Message::BubblePressStarted { .. }
             | Message::BubblePressReleased
             | Message::BubbleHintTimer
