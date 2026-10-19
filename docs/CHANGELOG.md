@@ -3,6 +3,7 @@
 ## [0.9.0] - Unreleased
 ### Added
 - Send photos and files with your messages. The reply box and New message both have an attach button, the chosen file shows as a chip you can remove, and the popup comes back on its own after the file picker closes. Files too large to send by MMS are flagged and Send is disabled until you remove them or shorten the message.
+- A Load older button at the top of a conversation loads earlier messages when there is nothing to scroll. Previously a short first page left the rest of the history unreachable.
 
 ### Changed
 - The Flatpak sandbox no longer has unrestricted access to the session bus. It now talks only to KDE Connect and the notification service.
@@ -21,6 +22,7 @@
 - Replies now go to the people in the conversation as Connected shows them. Previously KDE Connect picked the recipients from the oldest message it had cached, which could send a reply to nobody (your own number's thread), to a number twice, or to a stray `0001` participant.
 - Conversation names no longer show a stray `0001` participant beside the real contact.
 - Scrolling up in a conversation keeps loading older messages. Previously it could stop after the first older page, leaving the rest of the history out of reach.
+- In a merged conversation, scrolling up now reaches the busy thread's older messages in order. Previously the other threads' months-old messages sat above them and the busy thread's history was out of reach until the very top.
 
 ## [0.8.0] - 2026-08-30
 Connected's popup now blurs like the rest of COSMIC, and it starts KDE Connect for you instead of failing with a cryptic error, so first run works the same on Fedora, Arch and Debian as it does on Pop!_OS.

@@ -109,7 +109,7 @@ Opening a merged conversation fans out the message subscription: one `conversati
 Multi-subscription completion semantics:
 
 - `ConversationLoadComplete` is idempotent. Math (sort, `messages_has_more`, `last_seen_sms`) always runs; loading-state clear and scroll-to-bottom snap fire only on the first arrival. Late completions silently refresh stats so a slow-completing subscription can't yank the user back to bottom.
-- `thread_has_more: HashMap<i64, bool>` tracks exhaustion per thread as `loaded_t < total_count`, counting only messages carrying that `thread_id` — so per-thread counts are directly comparable and merged-set size no longer forces a heuristic. The heuristic survives only for `total_count == 0`, which the daemon uses to mean *unknown*, not *empty*; there it falls back to `loaded_t >= MESSAGES_PER_PAGE`. `messages_has_more` is the OR across `thread_has_more` over `current_merged_thread_ids`.
+- `thread_has_more: HashMap<i64, bool>` tracks exhaustion per thread as `loaded_t < total_count`, counting only messages carrying that `thread_id` — so per-thread counts are directly comparable and merged-set size no longer forces a heuristic. That rule applies on a thread open; an older page sets it by the settle rule under "Older Message Loading", and a later `conversationLoaded` never raises it. The heuristic survives only for `total_count == 0`, which the daemon uses to mean *unknown*, not *empty*; there it falls back to `loaded_t >= MESSAGES_PER_PAGE`. `messages_has_more` is the OR across `thread_has_more` over `current_merged_thread_ids`.
 
 ### Recipient rule
 
@@ -136,11 +136,15 @@ The merge-off path uses the same grouping key as the merge-on path, so any pair 
 
 ### Older Message Loading
 
-Older messages are loaded automatically when the user scrolls near the top of the thread, and are prepended as they arrive. The thread is anchored to the bottom, so a prepend does not move the view.
+Older messages are loaded when the user scrolls near the top of the thread, or presses Load older at the top of the thread, and are prepended as they arrive. The row exists because a first page that fits the popup has nothing to scroll, so no scroll event ever fires. It shows only once the initial load has completed and more history exists, the same condition the fire path checks. The thread is anchored to the bottom, so a prepend does not move the view.
 
-A thread's page ends on a full page of new messages, or when a `conversationLoaded` count shows the daemon has emitted all it will (`served >= min(requested, count)`). Because the range starts at 0, the daemon re-serves the messages already shown before the older ones; those duplicates count toward position in the range (`served`), not toward progress (`new`), so a page cannot settle on them.
+A thread's page settles on a full page of new messages, or on the first `conversationLoaded` for the thread after its cache burst. That signal is the last the daemon sends for the page: either its cache filled the request, or it fetched from the phone and emitted what arrived. More history exists if the cache filled the request (`served >= requested`) or the count grew past the last one seen (`last_count`). The count itself is never compared with the loaded count: the daemon keys its cache by date, so messages sent in the same second overwrite each other, and the count includes messages it can no longer serve. A `conversationLoaded` that arrives before the burst belongs to another request and is ignored. Because the range starts at 0, the daemon re-serves the messages already shown before the older ones; those duplicates count toward position in the range (`served`), not toward progress (`new`), so a page cannot settle full-page on them.
+
+Outside a page, a `conversationLoaded` never raises a thread's `has_more`. A grown count there is usually a new incoming message, not older history, and raising it would hide messages again behind a thread that is already at its top.
 
 For merged conversations, the fetch fans out: one request per threadId in `current_merged_thread_ids` that still has more to give (`thread_has_more`), each carrying its own already-loaded count. Each thread settles on its own counters, and the page is held open until every targeted thread has settled (`OlderPageLoad.pending`). `messages_has_more` is the OR across `thread_has_more`, so the thread stops paginating only when every merged thread is exhausted.
+
+In a merged conversation one thread's page can cover hours while another's covers months, which would put the quiet threads' old messages directly above the busy thread's oldest loaded one, with its unloaded history out of reach. The view therefore hides every message older than the display floor (`display_floor`): the newest oldest-loaded date among threads that still have more, counting unknown as more. An older page targets only the threads at the floor. When one reaches the top of its history, the floor drops and the other threads' hidden messages appear in order. The request range still counts hidden messages, because the daemon pages by index, not by what is shown.
 
 Each request is `requestConversation(threadId, 0, loaded_count + page)` — **the offset is pinned to 0 here for the same reason as the truncation retry above**: a non-zero `start` segfaults kdeconnectd 23.08.5.
 

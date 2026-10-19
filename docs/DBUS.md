@@ -166,6 +166,8 @@ pre-emptively when the remaining cache falls below `CACHE_LOW_WATER_MARK_PERCENT
 Conversations-interface read can turn into a phone round trip, and the cache does get populated -
 just by `addMessages()` on the response path, never by the worker.
 
+**A request that overlaps another's fetch gets nothing after its cache burst.** In 23.08.5, `updateConversation()` returns at once when a fetch for that thread is already in flight ("Not allowing two threads to wait"), so the second worker emits what its cache held and stops; the fetched messages are emitted once, by the first. The low-water top-up also fires on a request the cache filled completely, emitting a `conversationLoaded` after the page. Neither the presence nor the order of `conversationLoaded` marks a particular request's completion. 26.08.0 (`3bf16922b`) makes the second caller join the wait.
+
 ### Pagination offsets: always request from 0
 
 `requestConversation(conversationID, start, end)` on the Conversations interface has **no bounds check between the wire and the daemon's iterator arithmetic**. An out-of-range `start` dereferences past the end of the daemon's cached list: on kdeconnect 23.08.5 (Pop!_OS 24.04) that is a **SIGSEGV, and the daemon does not come back** - it is not D-Bus-activatable, so systemd leaves the unit failed and the user loses all KDE Connect functionality until they restart it manually. Newer daemons turn the crash into a silent "emit nothing, return Ok".
