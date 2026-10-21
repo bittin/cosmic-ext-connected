@@ -827,7 +827,7 @@ impl Application for ConnectApplet {
                 // requests re-fire from scratch (the proven full recovery).
                 // Computed once, consumed by two independent guards; the list and the
                 // per-thread message subscriptions have separate lifecycles
-                if let Some(sms_id) = self.sms.sms_device_id.as_deref() {
+                if let Some(sms_id) = self.sms.sms_device_id.clone() {
                     let was_reachable = self
                         .devices
                         .iter()
@@ -873,19 +873,8 @@ impl Application for ConnectApplet {
                             // bookkeeping OpenConversation does - otherwise the
                             // re-streamed page is deduped against stale uids and
                             // `messages` becomes the union of pre- and post-restart
-                            // data. Mirrors app.rs OpenConversation.
-                            self.sms.messages_has_more = true;
-                            self.sms.older_page = None;
-                            self.sms.thread_has_more = self
-                                .sms
-                                .current_merged_thread_ids
-                                .iter()
-                                .map(|&t| (t, true))
-                                .collect();
-                            self.sms.last_count.clear();
-                            self.sms.known_message_ids.clear();
-                            self.sms.messages.clear();
-                            self.sms.initial_load_complete = false;
+                            // data.
+                            self.sms.reset_thread_state();
                             self.sms.conversation_message_subscription_generation = self
                                 .sms
                                 .conversation_message_subscription_generation
@@ -1509,15 +1498,10 @@ impl Application for ConnectApplet {
                 self.set_view(ViewMode::DevicePage);
                 // Keep sms_device_id, sms_device_name, conversations, contacts
                 // for when user returns to SMS view
-                self.sms.messages.clear();
-                self.sms.known_message_ids.clear();
-                self.sms.thread_has_more.clear();
-                self.sms.last_count.clear();
-                self.sms.messages_has_more = true;
-                self.sms.older_page = None;
                 self.sms.current_thread_id = None;
                 self.sms.current_thread_addresses = None;
                 self.sms.current_merged_thread_ids.clear();
+                self.sms.reset_thread_state();
                 self.sms.sms_loading_state = SmsLoadingState::Idle;
                 self.sms.conversation_sync_active = false;
                 self.sms.new_message_sync_active = false;
@@ -1561,26 +1545,10 @@ impl Application for ConnectApplet {
                     self.sms.current_thread_addresses = addresses;
                     self.sms.current_merged_thread_ids = merged_thread_ids;
                     self.set_view(ViewMode::MessageThread);
+                    self.sms.reset_thread_state();
 
-                    // Reset pagination state
-                    self.sms.messages_has_more = true;
-                    self.sms.older_page = None;
-                    self.sms.thread_has_more = self
-                        .sms
-                        .current_merged_thread_ids
-                        .iter()
-                        .map(|&t| (t, true))
-                        .collect();
-                    self.sms.last_count.clear();
-
-                    // Clear known message IDs for fresh deduplication
-                    self.sms.known_message_ids.clear();
-                    self.sms.messages.clear();
-
-                    // Set up subscription-based loading state
-                    // The subscription will fire the D-Bus request after setting up match rules
+                    // The subscription fires the D-Bus request after setting up match rules
                     self.sms.conversation_load_active = true;
-                    self.sms.initial_load_complete = false;
 
                     // Page the thread through the daemon's worker; see docs/SMS.md Sec. Message Thread Loading
                     self.sms.sms_loading_state =
@@ -1598,9 +1566,7 @@ impl Application for ConnectApplet {
                 self.sms.current_thread_id = None;
                 self.sms.current_thread_addresses = None;
                 self.sms.current_merged_thread_ids.clear();
-                self.sms.thread_has_more.clear();
-                self.sms.last_count.clear();
-                self.sms.messages.clear();
+                self.sms.reset_thread_state();
                 self.sms.sms_compose_text = widget::text_editor::Content::new();
                 self.sms.pending_attachment = None;
                 self.sms.sms_sending = false;
@@ -1609,8 +1575,6 @@ impl Application for ConnectApplet {
 
                 // Clear subscription-based loading state
                 self.sms.conversation_load_active = false;
-                self.sms.initial_load_complete = false;
-                self.sms.known_message_ids.clear();
 
                 // The conversation-list subscription is still live and already holds
                 // everything a refetch would find, so this is a re-assert rather than a

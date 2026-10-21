@@ -260,6 +260,26 @@ impl SmsConversationStore {
         matches!(self.sms_loading_state, SmsLoadingState::LoadingMoreMessages)
     }
 
+    /// Reset the open thread's load bookkeeping to what a fresh first page starts
+    /// from: no messages or uids, ever thread of the merged set with more, no page
+    /// in flight, initial load pending. Seeds `thread_has_more` from
+    /// `current_merged_thread_ids`, so set (or clear) those first. Called on open,
+    /// on both closes, and on the reconnect regeneration; the view-lifecycle flags
+    /// stay with each caller.
+    pub(crate) fn reset_thread_state(&mut self) {
+        self.messages.clear();
+        self.known_message_ids.clear();
+        self.messages_has_more = true;
+        self.older_page = None;
+        self.thread_has_more = self
+            .current_merged_thread_ids
+            .iter()
+            .map(|&t| (t, true))
+            .collect();
+        self.last_count.clear();
+        self.initial_load_complete = false;
+    }
+
     /// Validate a picked path and stage it into `slot`
     fn stage_attachment(
         slot: &mut Option<StagedAttachment>,
