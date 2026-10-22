@@ -131,6 +131,8 @@ no-messages = Brak wiadomości
 no-messages-conversation = Brak wiadomości w tej rozmowie
 sms-will-appear = Wiadomości SMS pojawią się tutaj
 loading-older = Ładowanie...
+# TODO: translate
+load-older = Load older messages
 syncing = Synchronizowanie z telefonem...
 syncing-conversations = Synchronizowanie rozmów...
 hold-to-copy = Przytrzymaj aby skopiować
@@ -143,6 +145,8 @@ recipient-placeholder = Nazwa lub numer telefonu
 type-message = Wpisz wiadomość...
 send = Wyślij
 sending = Wysyłanie...
+# TODO: translate
+reply-no-recipient = No recipient found for this conversation - nothing was sent
 
 # Media controls
 loading-media = Ładowanie informacji o mediach...
@@ -186,6 +190,12 @@ daemon-not-responding = KDE Connect nie odpowiada
 attachment = Załącznik
 loading-attachment = Ładowanie załącznika...
 attachment-failed = Nie udało się załadować załącznika
+# TODO: translate
+attach-file = Attach file
+remove-attachment = Remove attachment
+attachment-unreadable = File is unreadable - not attached
+attachment-missing = Attachment is no longer readable - nothing was sent
+attachment-too-large = Too large to send - MMS is limited to 800 KB, text included
 
 # Reaction-thread merging UI
 merge-toggle-on-tooltip = Odpowiedzi reakcjami są zgrupowane w ich rozmowie. Kliknij aby pokazać je jako osobne wątki.

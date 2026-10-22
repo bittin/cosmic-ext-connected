@@ -132,6 +132,8 @@ no-messages = Inga meddelanden
 no-messages-conversation = Inga meddelanden i den här konversationen
 sms-will-appear = SMS-meddelanden kommer att visas här
 loading-older = Laddar...
+# TODO: translate
+load-older = Load older messages
 syncing = Synkroniserar med telefonen...
 syncing-conversations = Synkroniserar konversationer...
 hold-to-copy = Håll nedtryckt för att kopiera
@@ -144,6 +146,8 @@ recipient-placeholder = Namn eller telefonnummer
 type-message = Skriv ett meddelande...
 send = Skicka
 sending = Skickar...
+# TODO: translate
+reply-no-recipient = No recipient found for this conversation - nothing was sent
 
 # Mediekontroller
 loading-media = Laddar medieinformation...
@@ -187,6 +191,12 @@ daemon-not-responding = KDE Connect svarar inte
 attachment = Bilaga
 loading-attachment = Laddar bilaga...
 attachment-failed = Misslyckades att ladda bilaga
+# TODO: translate
+attach-file = Attach file
+remove-attachment = Remove attachment
+attachment-unreadable = File is unreadable - not attached
+attachment-missing = Attachment is no longer readable - nothing was sent
+attachment-too-large = Too large to send - MMS is limited to 800 KB, text included
 
 # Användargränssnitt för sammanslagning av reaktionstrådar
 merge-toggle-on-tooltip = Reaktionstrådarna är sammanslagna. Klicka för att visa separat.

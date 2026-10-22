@@ -131,6 +131,8 @@ no-messages = Žádné zprávy
 no-messages-conversation = V této konverzaci nejsou žádné zprávy
 sms-will-appear = SMS zprávy se zobrazí zde
 loading-older = Načítání...
+# TODO: translate
+load-older = Load older messages
 syncing = Synchronizování s telefonem...
 syncing-conversations = Synchronizování konverzací...
 hold-to-copy = Podržte pro zkopírování
@@ -143,6 +145,8 @@ recipient-placeholder = Jméno nebo telefonní číslo
 type-message = Napište zprávu...
 send = Odeslat
 sending = Odesílání...
+# TODO: translate
+reply-no-recipient = No recipient found for this conversation - nothing was sent
 
 # Media controls
 loading-media = Načítání informací o médiích...
@@ -186,6 +190,12 @@ daemon-not-responding = KDE Connect neodpovídá
 attachment = Příloha
 loading-attachment = Načítání přílohy...
 attachment-failed = Nepodařilo se načíst přílohu
+# TODO: translate
+attach-file = Attach file
+remove-attachment = Remove attachment
+attachment-unreadable = File is unreadable - not attached
+attachment-missing = Attachment is no longer readable - nothing was sent
+attachment-too-large = Too large to send - MMS is limited to 800 KB, text included
 
 # Reaction-thread merging UI
 merge-toggle-on-tooltip = Odpovědi na reakce jsou seskupeny do příslušné konverzace. Kliknutím je zobrazíte jako samostatná vlákna.
