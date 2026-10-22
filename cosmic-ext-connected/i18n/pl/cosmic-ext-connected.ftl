@@ -190,12 +190,11 @@ daemon-not-responding = KDE Connect nie odpowiada
 attachment = Załącznik
 loading-attachment = Ładowanie załącznika...
 attachment-failed = Nie udało się załadować załącznika
-# TODO: translate
-attach-file = Attach file
-remove-attachment = Remove attachment
-attachment-unreadable = File is unreadable - not attached
-attachment-missing = Attachment is no longer readable - nothing was sent
-attachment-too-large = Too large to send - MMS is limited to 800 KB, text included
+attach-file = Załącz plik
+remove-attachment = Usuń załącznik
+attachment-unreadable = Plik nieczytelny - nie będzie załączony
+attachment-missing = Załącznik stał się nieczytelny - nic nie zostało wysłane
+attachment-too-large = Zbyt duży by przesłać - Limit MMS to 800 KB, wliczając tekst
 
 # Reaction-thread merging UI
 merge-toggle-on-tooltip = Odpowiedzi reakcjami są zgrupowane w ich rozmowie. Kliknij aby pokazać je jako osobne wątki.
