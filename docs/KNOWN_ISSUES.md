@@ -80,20 +80,16 @@ In the captured case the daemon emitted `eventField 0`, an empty body and an emp
 
 Captured 2026-07-26 against kdeconnect 23.08.5 on a self-thread. Most sends on the same daemon render normally.
 
-## Text Sent with a Photo Over RCS Is Missing
+## Text Sent with a Photo Is Missing
 
-When the phone sends a photo with text as an RCS chat message, Connected shows the photo but not the text. Plain RCS text messages and photos received as MMS are unaffected. This is an Android limitation, not an applet bug.
+When a photo is sent or received with text, Connected may show the photo but not the text. The phone stores the photo and its text as two messages with the same timestamp, and KDE Connect's desktop daemon keeps only one message per timestamp in a conversation. The text is dropped before it reaches any desktop client. This is a KDE Connect bug, not an applet bug
 
 ### Symptoms
-- A photo sent from the phone with a caption, in a conversation where the phone's messaging app shows "RCS message", appears in Connected without its caption
-- Text-only RCS messages in the same conversation show normally
-- The recipient receives both the photo and the text
+- A photo with a caption appears in Connected without its caption
+- The phone's message app show both
+- Text-only messages are unaffected
 
-### Technical details
-
-Android gives third-party apps no RCS API. The phone's messaging app exposes an RCS photo through the MMS store with no text part, so the caption never reaches KDE Connect.
-
-This affects every KDE Connect desktop client, not only Connected. Related upstream: [KDE bug 464654](https://bugs.kde.org/show_bug.cgi?id=464654) (sending RCS).
+Captured 2026-10-18 against kdeconnectd 23.08.5 with Google Messages on a Galaxy S24.
 
 Captured 2026-10-14 against kdeconnect 23.08.5 with Google Messages on a Galaxy S24+.
 
