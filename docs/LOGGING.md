@@ -38,7 +38,7 @@ Exec=env RUST_LOG=cosmic_ext_connected=debug /home/<user>/.local/bin/cosmic-ext-
 
 then `killall cosmic-panel`. Note `just install` rewrites that line, so re-apply after each install.
 
-**Set it session-wide** for something persistent: put `RUST_LOG=cosmic_ext_connected=debug` in `~/.config/environment.d/50-connected-debug.conf` and log out and back in. Survives reinstalls; easy to forget to remove.
+**Set it session-wide** for something persistent: add `export RUST_LOG=warn,cosmic_ext_connected=debug` to `~/.profile` and log out and back in. `start-cosmic` launches the session through a login shell, so the variable reaches cosmic-panel and the applet. Keep the leading `warn`: the variable applies to every process in the session, and a bare crate directive silences everyone else's warnings. Survives reinstalls; easy to forget to remove.
 
 **Pick the level deliberately.** Some diagnostics that matter live at `debug`, not `info` — the older-messages pagination request (`sms/fetch.rs`) and the per-signal `D-Bus signal: <iface>.<member>` line (`subscriptions.rs`) among them. Running at `info` and seeing nothing is not evidence that nothing happened.
 
