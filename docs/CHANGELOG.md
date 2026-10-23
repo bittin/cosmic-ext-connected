@@ -1,28 +1,27 @@
 # Changelog
 
 ## [0.9.0] - Unreleased
+Photos and files can now be attached to SMS messages, and conversations load, scroll and reply more reliably.
 ### Added
-- Send photos and files with your messages. The reply box and New message both have an attach button, the chosen file shows as a chip you can remove, and the popup comes back on its own after the file picker closes. Files too large to send by MMS are flagged and Send is disabled until you remove them or shorten the message.
-- A Load older button at the top of a conversation loads earlier messages when there is nothing to scroll. Previously a short first page left the rest of the history unreachable.
+- Send photos and files with your messages. The reply box and New message have an attach button, and the chosen file shows as a removable chip. Files too large to send by MMS are flagged and Send is disabled until you remove them or shorten the message.
+- A Load older button at the top of a conversation, for when a short first page leaves nothing to scroll.
 
 ### Changed
-- The Flatpak sandbox no longer has unrestricted access to the session bus. It now talks only to KDE Connect and the notification service.
-- The files Connected uses to stop two panels raising the same notification now live in your session's private runtime directory instead of `/tmp`, so no other user on the machine can read or interfere with them.
-- Opening the SMS view asks the phone for the conversation list once instead of twice, halving the phone traffic each time KDE Connect restarts.
-- The device list no longer refreshes on other applications' D-Bus property changes, only on KDE Connect's own signals.
+- The Flatpak sandbox no longer has unrestricted session bus access. It talks only to KDE Connect and the notification service.
+- Notification dedup files moved from `/tmp` to your session's private runtime directory, out of reach of other users.
+- Opening SMS requests the conversation list from the phone once instead of twice.
+- The device list refreshes only on KDE Connect's own signals, not on other applications' D-Bus property changes.
 
 ### Fixed
-- The SMS reply box is no longer pushed off the bottom of short or heavily scaled screens.
-- The conversation list is no longer updated optimistically, and messages that never reached the phone no longer pin to the conversation list.
-- Opening a conversation no longer waits out an 8 s window after KDE Connect fetched the messages from the phone; the load completes as soon as the page is in, so the syncing indicator clears and older messages can be loaded right away.
-- The "No devices" card no longer shows an unlabelled settings icon. Settings stay reachable from the header once a device is listed.
-- Opening SMS on a device that has no conversations, such as a tablet without phone service, now shows the empty state instead of fetching forever.
-- Status messages such as "Message sent" or a pairing result no longer vanish within seconds because the device list refreshed; they stay until they time out or you move to another page.
-- When KDE Connect stops, devices show as offline right away instead of staying "connected" until the next click.
-- Replies now go to the people in the conversation as Connected shows them. Previously KDE Connect picked the recipients from the oldest message it had cached, which could send a reply to nobody (your own number's thread), to a number twice, or to a stray `0001` participant.
-- Conversation names no longer show a stray `0001` participant beside the real contact.
-- Scrolling up in a conversation keeps loading older messages. Previously it could stop after the first older page, leaving the rest of the history out of reach.
-- In a merged conversation, scrolling up now reaches the busy thread's older messages in order. Previously the other threads' months-old messages sat above them and the busy thread's history was out of reach until the very top.
+- The reply box is no longer pushed off the bottom of short or heavily scaled screens.
+- Messages that never reached the phone no longer stick at the top of the conversation list.
+- Conversations finish loading as soon as the messages arrive, instead of after an 8-second delay, so the syncing indicator clears and Load older works right away.
+- Scrolling up a conversation keeps loading older messages in order, including the busy thread in a merged conversation.
+- Replies go to the people Connected shows in the conversation. KDE Connect picked recipients from its oldest cached message, which could reply to nobody, to a number twice, or to a stray `0001` participant. That `0001` participant no longer appears in conversation names either.
+- Opening SMS on a device with no conversations, such as a tablet without phone service, shows the empty state instead of fetching forever.
+- Devices show as offline as soon as KDE Connect stops, instead of on the next click.
+- Status messages such as "Message sent" no longer vanish when the device list refreshes; they stay until they time out or you change page.
+- The "No devices" card no longer shows an unlabelled settings icon.
 
 ## [0.8.0] - 2026-08-30
 Connected's popup now blurs like the rest of COSMIC, and it starts KDE Connect for you instead of failing with a cryptic error, so first run works the same on Fedora, Arch and Debian as it does on Pop!_OS.
