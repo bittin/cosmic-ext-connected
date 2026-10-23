@@ -4,7 +4,7 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0</project_license>
   <developer id="io.github.nwxnw">
-    <name>nwxnw</name>
+    <name>Brian Stine</name>
   </developer>
   <developer_name>Brian Stine</developer_name>
 
@@ -38,6 +38,8 @@
       <li>SMS messaging with conversation threads</li>
       <li xml:lang="cs">SMS zprávy s vlákny konverzací</li>
       <li xml:lang="pl">SMSy z widokiem wątków</li>
+
+      <li>Send photos and files with your messages</li>
 
       <li>Smart SMS threading that merges conversations iOS reactions split into multiple threads on Android</li>
       <li xml:lang="cs">Chytré SMS vlákno, které slučuje konverzace a reakce z iOS rozdělené do více vláken na Androidu</li>
@@ -107,6 +109,31 @@
   </screenshots>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.9.0" date="2026-10-24">
+      <description>
+        <p>Photos and files can now be attached to SMS messages, and conversations load, scroll and reply more reliably.</p>
+        <p>Added</p>
+        <ul>
+          <li>Send photos and files with your messages.</li>
+          <li>A "Load older" button at the top of a conversation loads earlier messages when there is nothing to scroll.</li>
+        </ul>
+        <p>Changed</p>
+        <ul>
+          <li>The Flatpak now only talks to KDE Connect and the notification service, instead of the whole session bus.</li>
+          <li>Less background traffic to the phone and fewer device list refreshes.</li>
+        </ul>
+        <p>Fixed</p>
+        <ul>
+          <li>The reply box is no longer pushed off the bottom of short or heavily scaled screens.</li>
+          <li>Messages that never reached the phone no longer stick at the top of the conversation list.</li>
+          <li>Conversations finish loading as soon as the messages arrive, instead of after an 8-second delay.</li>
+          <li>Scrolling up a conversation keeps loading older messages in order, including in merged conversations.</li>
+          <li>Replies go to the people shown in the conversation, fixing replies that went to nobody, to a number twice, or to a stray participant.</li>
+          <li>A device with no conversations, such as a tablet without phone service, shows the empty state instead of fetching forever.</li>
+          <li>Devices show as offline as soon as KDE Connect stops.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.8.0" date="2026-08-30">
       <description>
         <p>Connected's popup now blurs like the rest of COSMIC, and it starts KDE Connect for you instead of failing with a cryptic error, so first run works the same on Fedora, Arch and Debian as it does on Pop!_OS.</p>
