@@ -1241,7 +1241,16 @@ impl SmsConversationStore {
                 self.sms_compose_text.perform(action);
                 (cosmic::app::Task::none(), SmsReply::NoOp)
             }
-            Message::SmsAttachmentSelected(path) => {
+            Message::SmsAttachmentSelected((device_id, thread_id), path) => {
+                if self.sms_device_id.as_deref() != Some(device_id.as_str())
+                    || self.current_thread_id != Some(thread_id)
+                {
+                    tracing::debug!(
+                        "attachment picked for thread {} dropped: no longer open",
+                        thread_id
+                    );
+                    return (cosmic::app::Task::none(), SmsReply::NoOp);
+                }
                 let reply = Self::stage_attachment(&mut self.pending_attachment, path);
                 (cosmic::app::Task::none(), reply)
             }

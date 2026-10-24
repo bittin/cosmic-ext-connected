@@ -185,8 +185,10 @@ pub enum Message {
     /// Open the file picker to stage an attachment for the open thread.
     AttachToSms,
     AttachToNewMessage,
-    /// Result of the picker; `None` means cancelled or unusable.
-    SmsAttachmentSelected(Option<std::path::PathBuf>),
+    /// Result of the picker; `None` means cancelled or unusable. Carries the
+    /// (device, thread) it was opened for: the picker outlives the popup, so the
+    /// use can be in another thread by the time it returns.
+    SmsAttachmentSelected((String, i64), Option<std::path::PathBuf>),
     NewMessageAttachmentSelected(Option<std::path::PathBuf>),
     /// Remove the staged attachment before sending.
     ClearSmsAttachment,
@@ -673,7 +675,7 @@ impl ConnectApplet {
     }
 
     fn pick_attachment(
-        to_message: fn(Option<std::path::PathBuf>) -> Message,
+        to_message: impl FnOnce(Option<std::path::PathBuf>) -> Message + Send + 'static,
     ) -> cosmic::app::Task<Message> {
         cosmic::task::future(async move {
             use cosmic::dialog::file_chooser;
@@ -1041,7 +1043,17 @@ impl Application for ConnectApplet {
             },
 
             // Pick file to attach to SMS message
-            Message::AttachToSms => return Self::pick_attachment(Message::SmsAttachmentSelected),
+            Message::AttachToSms => {
+                let (Some(device_id), Some(thread_id)) =
+                    (self.sms.sms_device_id.clone(), self.sms.current_thread_id)
+                else {
+                    return cosmic::app::Task::none();
+                };
+                return Self::pick_attachment(move |path| {
+                    Message::SmsAttachmentSelected((device_id, thread_id), path)
+                });
+            }
+
             Message::AttachToNewMessage => {
                 return Self::pick_attachment(Message::NewMessageAttachmentSelected)
             }
@@ -1049,7 +1061,7 @@ impl Application for ConnectApplet {
             // The portal dialog takes focus and the panel tears the popup
             // down. Bring it back on every path, cancel included, unless
             // the panel left it standing.
-            Message::SmsAttachmentSelected(_) | Message::NewMessageAttachmentSelected(_) => {
+            Message::SmsAttachmentSelected(..) | Message::NewMessageAttachmentSelected(_) => {
                 let reopen = if self.popup.is_none() {
                     Self::open_popup_task()
                 } else {
@@ -1546,6 +1558,10 @@ impl Application for ConnectApplet {
                     self.sms.current_merged_thread_ids = merged_thread_ids;
                     self.set_view(ViewMode::MessageThread);
                     self.sms.reset_thread_state();
+                    // A fresh composer per thread, Not in reset_thread_state(): the
+                    // DevicesUpdated recovery reoloads the open thread and must keep the draft.
+                    self.sms.sms_compose_text = widget::text_editor::Content::new();
+                    self.sms.pending_attachment = None;
 
                     // The subscription fires the D-Bus request after setting up match rules
                     self.sms.conversation_load_active = true;
