@@ -943,7 +943,7 @@ dependencies = [
 
 [[package]]
 name = "cosmic-ext-connected"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -2714,7 +2714,7 @@ dependencies = [
 
 [[package]]
 name = "kdeconnect-dbus"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "dirs 5.0.1",
  "serde",
