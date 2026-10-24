@@ -291,7 +291,7 @@ impl SmsConversationStore {
         let Ok(meta) = std::fs::metadata(&path) else {
             return SmsReply::Status(fl!("attachment-unreadable"));
         };
-        if !meta.is_file() {
+        if !meta.is_file() || std::fs::File::open(&path).is_err() {
             return SmsReply::Status(fl!("attachment-unreadable"));
         }
         *slot = Some(StagedAttachment {
@@ -1996,5 +1996,19 @@ mod tests {
             store.reply_recipients(1),
             Some((addrs(&["+15551234567"]), 2))
         );
+    }
+
+    #[test]
+    fn stage_attachment_refuses_unreadable_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let path =
+            std::env::temp_dir().join(format!("connected-unreadable-{}", std::process::id()));
+        std::fs::write(&path, b"x").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let mut slot = None;
+        let reply = SmsConversationStore::stage_attachment(&mut slot, Some(path.clone()));
+        let _ = std::fs::remove_file(&path);
+        assert!(matches!(reply, SmsReply::Status(_)));
+        assert!(slot.is_none());
     }
 }
