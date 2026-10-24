@@ -7,7 +7,7 @@ A phone connectivity applet for the [COSMIC](https://github.com/pop-os/cosmic-ep
 ## Features
 
 - **Device Management** - Pair, unpair, and monitor connected devices (phones, tablets, laptops, desktops)
-- **SMS Messaging** - View conversations, reply, and compose new messages with contact lookup; open MMS photo and video attachments
+- **SMS Messaging** - View conversations, reply, and compose new messages with contact lookup; send photos and files, and open MMS photo and video attachments
 - **Smart SMS Threading** - Automatically merges conversations that iOS reaction-over-SMS splits into multiple threads on Android, with a one-click toggle to view them split
 - **File Sharing** - Send and receive files and URLs, with desktop notifications
 - **Clipboard Sync** - Send clipboard content to your device
@@ -103,20 +103,21 @@ Work down this list:
 
 1. **KDE Connect is running on your phone**, and phone and desktop are on the same network.
 2. **The firewall allows ports 1714-1764**, TCP and UDP. Installing KDE Connect does not change the firewall on most distributions, so the daemon runs and no phone is found. `kdeconnect-cli -l` reporting `0 devices found` confirms that ports are blocked to it and not just Connected.
- - **ufw** (Pop!_OS, Ubuntu, Debian): When ufw is enabled, it defaults to denying all incoming traffic, including the ports that `kdeconnect` requires. To open the range:
-   ```sh
-   sudo ufw status verbose    #"Status: active" and "deny incoming" mean ufw is blocking the ports.
-   sudo ufw allow 1714:1764/udb
-   sudo ufw allow 1714:1764/tcp
-   ```
+   - **ufw** (Pop!_OS, Ubuntu, Debian): When ufw is enabled, it defaults to denying all incoming traffic, including the ports that `kdeconnect` requires. To open the range:
+     ```sh
+     sudo ufw status verbose    # "Status: active" and "deny incoming" mean ufw is blocking the ports.
+     sudo ufw allow 1714:1764/udp
+     sudo ufw allow 1714:1764/tcp
+     ```
 
- - **firewalld** (Fedora): the `Fedoraworkstation` zone opens these ports, but the COSMIC spin defaults to the `public` zone, which does not. firewalld ships a `kdeconnect` service definition covering the whole range.
-   ```sh
-   firewall-cmd --get-active-zones                         # which zone am I in?
-   sudo firewall-cmd --permanent --add-service=kdeconnect  # note: no hyphen
-   sudo firewall-cmd --reload
-   ```
-   These rules open the ports to every device on whatever network you are connected to; KDE Connect's pairing, not the firewall, is what keeps unpaired devices out. Care should be taken when connecting to public networks.
+   - **firewalld** (Fedora): the `Fedoraworkstation` zone opens these ports, but the COSMIC spin defaults to the `public` zone, which does not. firewalld ships a `kdeconnect` service definition covering the whole range.
+     ```sh
+     firewall-cmd --get-active-zones                         # which zone am I in?
+     sudo firewall-cmd --permanent --add-service=kdeconnect  # note: no hyphen
+     sudo firewall-cmd --reload
+     ```
+
+     These rules open the ports to every device on whatever network you are connected to; KDE Connect's pairing, not the firewall, is what keeps unpaired devices out. Care should be taken when connecting to public networks.
 
 ### "KDE Connect was not found"
 
@@ -135,6 +136,17 @@ Connected raises its own desktop notifications for incoming SMS and calls. KDE C
 - **Calls** - The duplicate comes from KDE Connect's **telephony** plugin. Connected reads call events from that same plugin, so disabling it would remove Connected's call notifications too; there is no clean per-app toggle today.
 
 The cleanest fix would be to mute KDE Connect's toasts at the COSMIC notification service. As COSMIC's notification settings evolve, per-application controls may offer a built-in way to do this.
+
+## Packaging
+
+Stage the install with `rootdir` and set the runtime path with `prefix`:
+
+```sh
+just build-release
+just rootdir="$pkgdir" prefix=/usr install
+```
+
+Keep the two separate: the desktop file's `Exec=` line is built from `prefix`, so passing a staging path there (for example `prefix="$pkgdir/usr"`) bakes the build directory into it.
 
 ## Contributing
 
