@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.9.0] - Unreleased
+## [0.9.0] - 2026-10-24
 Photos and files can now be attached to SMS messages, and conversations load, scroll and reply more reliably.
 ### Added
 - Send photos and files with your messages. The reply box and New message have an attach button, and the chosen file shows as a removable chip. Files too large to send by MMS are flagged and Send is disabled until you remove them or shorten the message.
