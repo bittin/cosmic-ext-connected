@@ -22,7 +22,7 @@
     propojení telefonu s počítačem pomocí KDE Connect jako backendu.</p>
     <p xml:lang="pl">Connected jest apletem dla środowiska graficznego COSMIC, który zapewnia połączenie między telefonem a komputerem używając KDE Connect jako backendu.</p>
     <p>Connected requires KDE Connect to be installed on your computer, and the KDE Connect companion app on your phone.</p>
-    <p xml:lang="sv">Connected är en är en panelapplet för COSMIC-skrivbordsmiljön som tillhandahåller telefon till dator anslutning med KDE Connect som backend.</p>
+    <p xml:lang="sv">Connected är en panelapplet för COSMIC-skrivbordsmiljön som tillhandahåller telefon till dator anslutning med KDE Connect som backend.</p>
     <p xml:lang="cs">Connected vyžaduje nainstalovaný KDE Connect na počítači a mobilní aplikaci KDE Connect ve vašem telefonu.</p>
     <p xml:lang="pl">Connected wymaga zainstalowania na komputerze KDE Connect, oraz aplikacji KDE Connect na telefonie.</p>
 
