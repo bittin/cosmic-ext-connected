@@ -542,15 +542,6 @@ impl SmsConversationStore {
     ) -> cosmic::app::Task<Message> {
         self.first_page.remove(&thread_id);
         self.thread_has_more.insert(thread_id, has_more);
-        if let Some(newest) = self.messages.iter().map(|m| m.date).max() {
-            if let Some(device_id) = self.sms_device_id.clone() {
-                let key = (device_id, thread_id);
-                let current = self.last_seen_sms.get(&key).copied();
-                if current.is_none() || current < Some(newest) {
-                    self.last_seen_sms.insert(key, newest);
-                }
-            }
-        }
         tracing::info!(
             "First page of thread {} settled: detector={}, has_more={}, {} messages across the merged set",
             thread_id,
@@ -625,7 +616,7 @@ impl SmsConversationStore {
             return cosmic::app::Task::none();
         }
         tracing::debug!(
-            "Prefetching older messages (floor={:?}, targets={:?})",
+            "Requesting older page (floor={:?}, targets={:?})",
             floor,
             targets
         );
@@ -862,13 +853,6 @@ impl SmsConversationStore {
 
                 self.rederive_conversations(ctx.config);
 
-                // Update last_seen for notification deduplication
-                let key = (device_id, conversation.thread_id);
-                let current = self.last_seen_sms.get(&key).copied();
-                if current.is_none() || current < Some(conversation.timestamp) {
-                    self.last_seen_sms.insert(key, conversation.timestamp);
-                }
-
                 // Transition from loading spinner to showing data (but keep sync indicator)
                 if matches!(
                     self.sms_loading_state,
@@ -909,12 +893,6 @@ impl SmsConversationStore {
                     .collect();
 
                 for conversation in conversations {
-                    let key = (device_id.clone(), conversation.thread_id);
-                    let current = self.last_seen_sms.get(&key).copied();
-                    if current.is_none() || current < Some(conversation.timestamp) {
-                        self.last_seen_sms.insert(key, conversation.timestamp);
-                    }
-
                     match by_thread.entry(conversation.thread_id) {
                         Entry::Occupied(mut slot) => {
                             if conversation.timestamp > slot.get().timestamp {
@@ -1298,10 +1276,9 @@ impl SmsConversationStore {
                     .iter()
                     .filter(|m| m.thread_id == thread_id)
                     .count() as u64;
-                // `total_count == 0` on the collected-reply path means "unknown",
-                // not "empty" (daemon quirk) — fall back to the per-thread page
-                // heuristic so a late-arriving 0 can't latch has_more false and
-                // kill the first scroll's prefetch.
+                // A `count` of 0 means "unknown", not "empty" (daemon quirk) - fall
+                // back to the per-thread page heuristic so a late-arriving 0 can't
+                // latch has_more false and hide the Load older row.
                 let has_more_t = if count > 0 {
                     loaded_t < count
                 } else {
@@ -1904,9 +1881,8 @@ impl SmsConversationStore {
     }
 
     /// SMS-state-driven subscriptions: conversation-list refresh and the
-    /// per-thread message subscription. The unconditional SMS/call notification
-    /// subscriptions stay in `app.rs::subscription()` because they're gated on
-    /// device reachability + config, not store state.
+    /// per-thread message subscription. SMS and call notifications are handled
+    /// in the main `dbus_signal_subscription`, not here.
     pub fn subscriptions(&self) -> Vec<Subscription<Message>> {
         let mut subs: Vec<Subscription<Message>> = Vec::new();
 
